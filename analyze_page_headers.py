@@ -79,3 +79,53 @@ print("==================")
 print("Conferences without a Member Schools section:")
 for conference in conferences_without_member_schools_field:
     print(conference)
+
+
+# count the number of characters within the sections delineated by the member_h2_variants headers, 
+# to get a sense of how much content is typically included in the Member Schools section
+# i have to determine what is a section by first identifying the h2 header that matches one of the 
+# member_h2_variants, and then counting the characters in the content until the next h2 header
+
+member_schools_character_counts: list[int] = []
+for conference, sections in json_data.items():
+    for i, section in enumerate(sections):
+        h2_text = section["h2"]
+        if h2_text in member_h2_variants:
+            # this is the start of the Member Schools section
+            # we will count characters until the next h2 header or the end of the sections list
+            character_count = 0
+            for j in range(i + 1, len(sections)):
+                next_h2_text = sections[j]["h2"]
+                if next_h2_text in member_h2_variants:
+                    break  # stop counting when we reach the next Member Schools section
+                # count characters in this section's h3 headers and any content (if available)
+                h3_headers = section.get("h3", [])
+                character_count += sum(len(h3) for h3 in h3_headers)
+                # if there was additional content under this section, we would count it here as well
+            member_schools_character_counts.append(character_count)
+
+if member_schools_character_counts:
+    average_characters = sum(member_schools_character_counts) / len(member_schools_character_counts)
+    print("==================")
+    print(f"Average number of characters in Member Schools sections: {average_characters:.2f}")
+else:
+    print("==================")
+    print("No Member Schools sections found to analyze character counts.")
+
+# print the count for each conference that has a Member Schools section
+print("==================")
+print("Character counts for Member Schools sections by conference:")
+for conference, sections in json_data.items():
+    for i, section in enumerate(sections):
+        h2_text = section["h2"]
+        if h2_text in member_h2_variants:
+            character_count = 0
+            for j in range(i + 1, len(sections)):
+                next_h2_text = sections[j]["h2"]
+                if next_h2_text in member_h2_variants:
+                    break
+                h3_headers = section.get("h3", [])
+                character_count += sum(len(h3) for h3 in h3_headers)
+            print(f"{conference}: {character_count} characters")
+
+            
