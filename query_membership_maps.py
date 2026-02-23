@@ -4,7 +4,6 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 
-test_url = "https://en.wikipedia.org/w/index.php?title=Atlantic_Coast_Conference&action=edit&section=5"
 API = "https://en.wikipedia.org/w/api.php"
 SESSION = requests.Session()
 SESSION.headers.update(
@@ -13,6 +12,16 @@ SESSION.headers.update(
 		"Accept": "application/json",
 	}
 )
+
+
+with (open("conference_timeline_map_edit_links.json", "r", encoding="utf-8") as f):
+    json_data = json.load(f)
+	
+
+
+conference_maps = [{"conference": item["conference"], "edit_url": item["edit_url"]} for item in json_data]
+
+
 
 
 def parse_edit_url(url: str) -> tuple[str, str]:
@@ -43,12 +52,19 @@ def fetch_section_wikitext(title: str, section: str) -> str:
 	return payload.get("parse", {}).get("wikitext", "")
 
 
-def main() -> None:
-	title, section = parse_edit_url(test_url)
-	wikitext = fetch_section_wikitext(title, section)
-	print(wikitext)
+	
+for url in conference_maps:
+    title, section = parse_edit_url(url["edit_url"])
+    wikitext = fetch_section_wikitext(title, section)
+    print(f"=== {url['conference']} ===")
+    print(wikitext)
+    print("\n\n")
+    url["membership_map_wikitext"] = wikitext
 
 
-if __name__ == "__main__":
-	main()
+with open("conference_timeline_map_edit_links_with_wikitext.json", "w", encoding="utf-8") as f:
+    json.dump(conference_maps, f, indent=2, ensure_ascii=False)
+
+
+
 
