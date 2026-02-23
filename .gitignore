@@ -12,3 +12,6 @@ wheels/
 
 # large files
 data-assembly/json
+
+# env
+.env
