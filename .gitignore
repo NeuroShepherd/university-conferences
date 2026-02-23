@@ -11,4 +11,4 @@ wheels/
 
 
 # large files
-conference_wikipedia_html.json
+data-assembly/json
