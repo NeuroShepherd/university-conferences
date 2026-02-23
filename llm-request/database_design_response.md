@@ -1,1 +1,374 @@
-"The goal is to create a comprehensive, normalized database schema using a snowflake design. This involves identifying core entities, their attributes, and their relationships, paying close attention to temporal data and complex scenarios like split conference memberships across sports or divisions.\n\n### Considerations and Design Decisions:\n\n1.  **Normalization and Snowflake Schema:**\n    *   **Core Entities:** Universities, Conferences, Sports, Divisions, Associations, and Locations are central to the data.\n    *   **Dimension Tables:** Each core entity is modeled as a dimension table (`dim_universities`, `dim_conferences`, `dim_sports`, `dim_divisions`, `dim_associations`, `dim_states`, `dim_cities`, `dim_affiliations`, `dim_membership_types`).\n    *   **Further Normalization (Snowflake Aspect):** Dimensions like `dim_universities` and `dim_conferences` are not flat. For instance, `dim_universities` references `dim_cities` (for location) and `dim_affiliations` (for institutional type and denomination), and `dim_cities` in turn references `dim_states`. `dim_divisions` references `dim_associations`. This layered approach is characteristic of a snowflake schema.\n\n2.  **Temporal Data Handling (Membership Over Time):**\n    *   **Fact Table (`fact_membership`):** This is the central table capturing the many-to-many relationship between universities and conferences over time, for specific sports and divisions. It includes `joined_year` and `left_year` to define the duration of each membership.\n    *   **Slowly Changing Dimensions (Type 2):** For attributes of universities and conferences that change over time (e.g., names), dedicated bridge tables (`bridge_university_names`, `bridge_conference_names`, `bridge_university_nicknames`, `bridge_conference_divisions`) are used to store historical versions with `start_year` and `end_year`. The `dim_universities` and `dim_conferences` tables hold the *current* state of these entities for ease of reporting on current data.\n\n3.  **Complex Membership Scenarios:**\n    *   **Split Membership Across Sports:** The `fact_membership` table explicitly includes `sport_id` as a foreign key.\n        *   For a \"Full Member (all sports)\", the `sport_id` will be `NULL`, and the `membership_type_id` will indicate the 'all sports' nature.\n        *   For \"Associate Member (sport)\" or \"Full Member (non-football)\", the specific `sport_id` will be populated, enabling detailed tracking (e.g., Notre Dame's ACC membership for most sports vs. football independence would be two separate `fact_membership` entries).\n    *   **Sports Split Across Divisions:** The `division_id` in `fact_membership` refers to the division **for that specific membership entry**. This directly addresses cases like Johns Hopkins being a DIII university but having a DI lacrosse team. The `dim_divisions` table now includes NAIA as a division type alongside NCAA divisions.\n    *   **University Name Changes (`bridge_university_names`):** This table allows tracking all historical names of a university. The `dim_universities` table holds the `current_university_name`.\n    *   **Conference Name Changes (`bridge_conference_names`):** Similarly, this table tracks historical conference names.\n    *   **Nicknames (`bridge_university_nicknames`):** This table handles both general university nicknames and sport-specific nicknames (like \"Beach Bears\" for Missouri State's beach volleyball), with temporal tracking. `dim_universities` retains a `current_nickname` for convenience.\n    *   **Primary Conference for Affiliates:** The `primary_conference_for_sport_id` in `fact_membership` captures the \"main conference\" for an affiliate member, as seen in the sample data.\n\n4.  **Date/Year Handling:**\n    *   `start_year`, `end_year`, `joined_year`, `left_year` are all modeled as `INT` columns representing calendar years, consistent with how the Wikipedia data presents membership timelines (e.g., \"1985\u201386 academic year\"). This avoids over-complicating with full `DATE` types when only year granularity is provided.\n\n5.  **Location and Affiliation Details:**\n    *   `dim_states` and `dim_cities` provide granular geographic data.\n    *   `dim_affiliations` captures the type of institution (public, private, federal/military) and specific denominations where applicable, allowing for diverse querying of university characteristics.\n\nThis design aims for flexibility and accuracy in representing the intricate historical and current membership data.\n\n---\n\n### SQL Database Schema\n\n```sql\n-- Create Schema\nCREATE SCHEMA IF NOT EXISTS sports_conferences;\n\n-- Dimension Tables\n\n-- Stores information about athletic associations (e.g., NCAA, NAIA)\nCREATE TABLE sports_conferences.dim_associations (\n    association_id INT IDENTITY(1,1) PRIMARY KEY,\n    association_name VARCHAR(50) NOT NULL UNIQUE\n);\n\n-- Stores information about athletic divisions (e.g., Division I, Division II, NAIA)\nCREATE TABLE sports_conferences.dim_divisions (\n    division_id INT IDENTITY(1,1) PRIMARY KEY,\n    division_name VARCHAR(50) NOT NULL UNIQUE,\n    association_id INT NOT NULL,\n    CONSTRAINT fk_division_association FOREIGN KEY (association_id) REFERENCES sports_conferences.dim_associations(association_id)\n);\n\n-- Stores information about states\nCREATE TABLE sports_conferences.dim_states (\n    state_id INT IDENTITY(1,1) PRIMARY KEY,\n    state_name VARCHAR(100) NOT NULL UNIQUE,\n    state_abbreviation VARCHAR(10) NOT NULL UNIQUE\n);\n\n-- Stores information about cities, linked to states\nCREATE TABLE sports_conferences.dim_cities (\n    city_id INT IDENTITY(1,1) PRIMARY KEY,\n    city_name VARCHAR(100) NOT NULL,\n    state_id INT NOT NULL,\n    CONSTRAINT fk_city_state FOREIGN KEY (state_id) REFERENCES sports_conferences.dim_states(state_id),\n    UNIQUE (city_name, state_id) -- A city name should be unique within a state\n);\n\n-- Stores information about university affiliations (e.g., Public, Private, Religious)\nCREATE TABLE sports_conferences.dim_affiliations (\n    affiliation_id INT IDENTITY(1,1) PRIMARY KEY,\n    affiliation_type VARCHAR(100) NOT NULL UNIQUE, -- e.g., 'Public', 'Private', 'Federal/Military'\n    denomination VARCHAR(100) NULL -- e.g., 'Roman Catholic', 'Southern Baptist', 'Nonsectarian', NULL if not applicable\n);\n\n-- Stores current information about universities\nCREATE TABLE sports_conferences.dim_universities (\n    university_id INT IDENTITY(1,1) PRIMARY KEY,\n    current_university_name VARCHAR(255) NOT NULL UNIQUE,\n    founded_year INT NULL,\n    current_enrollment INT NULL,\n    current_colors VARCHAR(255) NULL, -- Stores primary colors, e.g., \"#000000, #FFCE00\"\n    main_campus_city_id INT NULL,\n    main_campus_latitude DECIMAL(9,6) NULL,\n    main_campus_longitude DECIMAL(9,6) NULL,\n    current_affiliation_id INT NULL,\n    CONSTRAINT fk_university_city FOREIGN KEY (main_campus_city_id) REFERENCES sports_conferences.dim_cities(city_id),\n    CONSTRAINT fk_university_affiliation FOREIGN KEY (current_affiliation_id) REFERENCES sports_conferences.dim_affiliations(affiliation_id)\n);\n\n-- Stores current information about conferences\nCREATE TABLE sports_conferences.dim_conferences (\n    conference_id INT IDENTITY(1,1) PRIMARY KEY,\n    current_conference_name VARCHAR(255) NOT NULL UNIQUE,\n    short_name VARCHAR(50) UNIQUE NULL,\n    founded_year INT NULL\n);\n\n-- Stores types of sports, including gender distinctions if typically specified (e.g., 'Men's Soccer', 'Women's Rowing', 'Football')\nCREATE TABLE sports_conferences.dim_sports (\n    sport_id INT IDENTITY(1,1) PRIMARY KEY,\n    sport_name_normalized VARCHAR(100) NOT NULL UNIQUE -- e.g., 'Football', 'Men\\'s Basketball', 'Women\\'s Rowing', 'Gymnastics', 'Co-ed Cheerleading'\n);\n\n-- Stores types of memberships (e.g., Full, Associate, Football-only)\nCREATE TABLE sports_conferences.dim_membership_types (\n    membership_type_id INT IDENTITY(1,1) PRIMARY KEY,\n    type_name VARCHAR(100) NOT NULL UNIQUE, -- e.g., 'Full Member (all sports)', 'Associate Member (football-only)'\n    description TEXT NULL\n);\n\n-- Bridge/History Tables\n\n-- Tracks historical names of universities\nCREATE TABLE sports_conferences.bridge_university_names (\n    university_name_history_id INT IDENTITY(1,1) PRIMARY KEY,\n    university_id INT NOT NULL,\n    university_name VARCHAR(255) NOT NULL,\n    start_year INT NOT NULL,\n    end_year INT NULL, -- NULL if this is the current name or the university is still active under this name\n    CONSTRAINT fk_uni_name_history_university FOREIGN KEY (university_id) REFERENCES sports_conferences.dim_universities(university_id),\n    UNIQUE (university_id, university_name, start_year) -- A university can't have the same name twice starting the same year\n);\n\n-- Tracks historical nicknames of universities, including sport-specific ones\nCREATE TABLE sports_conferences.bridge_university_nicknames (\n    uni_nickname_history_id INT IDENTITY(1,1) PRIMARY KEY,\n    university_id INT NOT NULL,\n    nickname VARCHAR(100) NOT NULL,\n    start_year INT NOT NULL,\n    end_year INT NULL, -- NULL if current\n    sport_id INT NULL, -- NULL if it's a general university nickname; otherwise links to specific sport\n    CONSTRAINT fk_uni_nickname_history_university FOREIGN KEY (university_id) REFERENCES sports_conferences.dim_universities(university_id),\n    CONSTRAINT fk_uni_nickname_history_sport FOREIGN KEY (sport_id) REFERENCES sports_conferences.dim_sports(sport_id),\n    UNIQUE (university_id, nickname, start_year, COALESCE(sport_id, 0)) -- Ensures uniqueness for nicknames, including handling NULL sport_id for general nicknames\n);\n\n-- Tracks historical names of conferences\nCREATE TABLE sports_conferences.bridge_conference_names (\n    conference_name_history_id INT IDENTITY(1,1) PRIMARY KEY,\n    conference_id INT NOT NULL,\n    conference_name VARCHAR(255) NOT NULL,\n    start_year INT NOT NULL,\n    end_year INT NULL, -- NULL if current\n    CONSTRAINT fk_conf_name_history_conference FOREIGN KEY (conference_id) REFERENCES sports_conferences.dim_conferences(conference_id),\n    UNIQUE (conference_id, conference_name, start_year)\n);\n\n-- Tracks changes in a conference's primary athletic division over time\nCREATE TABLE sports_conferences.bridge_conference_divisions (\n    conf_div_history_id INT IDENTITY(1,1) PRIMARY KEY,\n    conference_id INT NOT NULL,\n    division_id INT NOT NULL,\n    start_year INT NOT NULL,\n    end_year INT NULL, -- NULL if current\n    CONSTRAINT fk_conf_div_history_conference FOREIGN KEY (conference_id) REFERENCES sports_conferences.dim_conferences(conference_id),\n    CONSTRAINT fk_conf_div_history_division FOREIGN KEY (division_id) REFERENCES sports_conferences.dim_divisions(division_id),\n    UNIQUE (conference_id, division_id, start_year)\n);\n\n-- Fact Table\n\n-- Records instances of a university's membership in a conference for a specific sport/division during a time period\nCREATE TABLE sports_conferences.fact_membership (\n    membership_id INT IDENTITY(1,1) PRIMARY KEY,\n    university_id INT NOT NULL,\n    conference_id INT NOT NULL,\n    membership_type_id INT NOT NULL,\n    joined_year INT NOT NULL, -- The calendar year when fall sports competition begins (e.g., 1985 for 1985-86)\n    left_year INT NULL, -- The calendar year when spring sports competition ends (e.g., 1995 for 1994-95), NULL if current\n    sport_id INT NULL, -- NULL if this is an 'all sports' membership type; otherwise, links to specific sport (e.g., football, women's rowing)\n    division_id INT NOT NULL, -- The specific division (e.g., NCAA DI, DIII, NAIA) that this *particular membership* belongs to.\n    primary_conference_for_sport_id INT NULL, -- For affiliate members, their primary conference home for that sport if different from the current conference.\n    previous_conference_id INT NULL, -- Where the university came from immediately before this specific membership (can be a conference or 'Independent')\n    next_conference_id INT NULL, -- Where the university went immediately after this specific membership (can be a conference or 'Independent')\n    reason_for_change TEXT NULL, -- Descriptive reason for joining/leaving (e.g., 'conference realignment', 'school ceased operations')\n    membership_notes TEXT NULL, -- Any additional specific notes about this membership instance\n    CONSTRAINT fk_membership_university FOREIGN KEY (university_id) REFERENCES sports_conferences.dim_universities(university_id),\n    CONSTRAINT fk_membership_conference FOREIGN KEY (conference_id) REFERENCES sports_conferences.dim_conferences(conference_id),\n    CONSTRAINT fk_membership_type FOREIGN KEY (membership_type_id) REFERENCES sports_conferences.dim_membership_types(membership_type_id),\n    CONSTRAINT fk_membership_sport FOREIGN KEY (sport_id) REFERENCES sports_conferences.dim_sports(sport_id),\n    CONSTRAINT fk_membership_division FOREIGN KEY (division_id) REFERENCES sports_conferences.dim_divisions(division_id),\n    CONSTRAINT fk_membership_primary_conf FOREIGN KEY (primary_conference_for_sport_id) REFERENCES sports_conferences.dim_conferences(conference_id),\n    CONSTRAINT fk_membership_prev_conf FOREIGN KEY (previous_conference_id) REFERENCES sports_conferences.dim_conferences(conference_id),\n    CONSTRAINT fk_membership_next_conf FOREIGN KEY (next_conference_id) REFERENCES sports_conferences.dim_conferences(conference_id),\n    -- Ensures a unique record for a university's specific membership in a conference for a given sport and division during a time frame.\n    -- COALESCE(left_year, 9999) handles current memberships gracefully for uniqueness constraint.\n    UNIQUE (university_id, conference_id, COALESCE(sport_id, 0), division_id, joined_year, COALESCE(left_year, 9999))\n);\n```"
+
+---
+
+# Snowflake Schema Design for Sports Conference Membership Database
+
+The goal is to create a comprehensive, normalized database schema using a snowflake design. This involves identifying core entities, their attributes, and their relationships, paying close attention to temporal data and complex scenarios like split conference memberships across sports or divisions.
+
+---
+
+## Considerations and Design Decisions
+
+### 1. Normalization and Snowflake Schema
+
+#### Core Entities
+
+Universities, Conferences, Sports, Divisions, Associations, and Locations are central to the data.
+
+#### Dimension Tables
+
+Each core entity is modeled as a dimension table:
+
+* `dim_universities`
+* `dim_conferences`
+* `dim_sports`
+* `dim_divisions`
+* `dim_associations`
+* `dim_states`
+* `dim_cities`
+* `dim_affiliations`
+* `dim_membership_types`
+
+#### Further Normalization (Snowflake Aspect)
+
+Dimensions like `dim_universities` and `dim_conferences` are not flat.
+
+* `dim_universities` references:
+
+  * `dim_cities` (for location)
+  * `dim_affiliations` (for institutional type and denomination)
+* `dim_cities` references:
+
+  * `dim_states`
+* `dim_divisions` references:
+
+  * `dim_associations`
+
+This layered structure is characteristic of a **snowflake schema**.
+
+---
+
+### 2. Temporal Data Handling (Membership Over Time)
+
+#### Fact Table: `fact_membership`
+
+This is the central table capturing the many-to-many relationship between universities and conferences over time, for specific sports and divisions.
+
+It includes:
+
+* `joined_year`
+* `left_year`
+
+These define the duration of each membership.
+
+#### Slowly Changing Dimensions (Type 2)
+
+For attributes that change over time (e.g., names), dedicated bridge tables are used:
+
+* `bridge_university_names`
+* `bridge_conference_names`
+* `bridge_university_nicknames`
+* `bridge_conference_divisions`
+
+These store historical versions with:
+
+* `start_year`
+* `end_year`
+
+The `dim_universities` and `dim_conferences` tables store only the **current state** for reporting convenience.
+
+---
+
+### 3. Complex Membership Scenarios
+
+#### Split Membership Across Sports
+
+The `fact_membership` table includes `sport_id` as a foreign key.
+
+* **Full Member (all sports)**
+
+  * `sport_id` = `NULL`
+  * `membership_type_id` indicates "all sports"
+
+* **Associate Member (sport)** or **Full Member (non-football)**
+
+  * `sport_id` is populated with the specific sport
+
+This allows multiple simultaneous memberships for a single university across different sports.
+
+---
+
+#### Sports Split Across Divisions
+
+The `division_id` in `fact_membership` represents the division for that specific membership record.
+
+This handles cases such as:
+
+* A university competing in one division overall
+* A specific sport competing in a different division
+
+`dim_divisions` includes both NCAA divisions and NAIA.
+
+---
+
+#### University Name Changes
+
+`bridge_university_names` tracks historical names.
+
+`dim_universities` stores:
+
+* `current_university_name`
+
+---
+
+#### Conference Name Changes
+
+`bridge_conference_names` tracks historical conference names.
+
+---
+
+#### Nicknames
+
+`bridge_university_nicknames` stores:
+
+* General university nicknames
+* Sport-specific nicknames
+* Temporal history via `start_year` / `end_year`
+
+`dim_universities` includes:
+
+* `current_nickname` (for convenience)
+
+---
+
+#### Primary Conference for Affiliates
+
+`primary_conference_for_sport_id` in `fact_membership` stores the main conference home for affiliate members.
+
+---
+
+### 4. Date/Year Handling
+
+The following fields are modeled as `INT`:
+
+* `start_year`
+* `end_year`
+* `joined_year`
+* `left_year`
+
+These represent calendar years and align with how membership timelines are typically presented (e.g., academic year spans).
+
+This avoids unnecessary complexity from full `DATE` types when only year-level granularity is available.
+
+---
+
+### 5. Location and Affiliation Details
+
+* `dim_states` and `dim_cities` provide geographic granularity.
+* `dim_affiliations` captures:
+
+  * Public
+  * Private
+  * Federal/Military
+  * Religious denominations (when applicable)
+
+This supports flexible institutional queries.
+
+---
+
+# SQL Database Schema
+
+```sql
+-- Create Schema
+CREATE SCHEMA IF NOT EXISTS sports_conferences;
+
+-- Dimension Tables
+
+-- Stores information about athletic associations (e.g., NCAA, NAIA)
+CREATE TABLE sports_conferences.dim_associations (
+    association_id INT IDENTITY(1,1) PRIMARY KEY,
+    association_name VARCHAR(50) NOT NULL UNIQUE
+);
+
+-- Stores information about athletic divisions (e.g., Division I, Division II, NAIA)
+CREATE TABLE sports_conferences.dim_divisions (
+    division_id INT IDENTITY(1,1) PRIMARY KEY,
+    division_name VARCHAR(50) NOT NULL UNIQUE,
+    association_id INT NOT NULL,
+    CONSTRAINT fk_division_association
+        FOREIGN KEY (association_id)
+        REFERENCES sports_conferences.dim_associations(association_id)
+);
+
+-- Stores information about states
+CREATE TABLE sports_conferences.dim_states (
+    state_id INT IDENTITY(1,1) PRIMARY KEY,
+    state_name VARCHAR(100) NOT NULL UNIQUE,
+    state_abbreviation VARCHAR(10) NOT NULL UNIQUE
+);
+
+-- Stores information about cities, linked to states
+CREATE TABLE sports_conferences.dim_cities (
+    city_id INT IDENTITY(1,1) PRIMARY KEY,
+    city_name VARCHAR(100) NOT NULL,
+    state_id INT NOT NULL,
+    CONSTRAINT fk_city_state
+        FOREIGN KEY (state_id)
+        REFERENCES sports_conferences.dim_states(state_id),
+    UNIQUE (city_name, state_id)
+);
+
+-- Stores information about university affiliations
+CREATE TABLE sports_conferences.dim_affiliations (
+    affiliation_id INT IDENTITY(1,1) PRIMARY KEY,
+    affiliation_type VARCHAR(100) NOT NULL UNIQUE,
+    denomination VARCHAR(100) NULL
+);
+
+-- Stores current information about universities
+CREATE TABLE sports_conferences.dim_universities (
+    university_id INT IDENTITY(1,1) PRIMARY KEY,
+    current_university_name VARCHAR(255) NOT NULL UNIQUE,
+    founded_year INT NULL,
+    current_enrollment INT NULL,
+    current_colors VARCHAR(255) NULL,
+    main_campus_city_id INT NULL,
+    main_campus_latitude DECIMAL(9,6) NULL,
+    main_campus_longitude DECIMAL(9,6) NULL,
+    current_affiliation_id INT NULL,
+    CONSTRAINT fk_university_city
+        FOREIGN KEY (main_campus_city_id)
+        REFERENCES sports_conferences.dim_cities(city_id),
+    CONSTRAINT fk_university_affiliation
+        FOREIGN KEY (current_affiliation_id)
+        REFERENCES sports_conferences.dim_affiliations(affiliation_id)
+);
+
+-- Stores current information about conferences
+CREATE TABLE sports_conferences.dim_conferences (
+    conference_id INT IDENTITY(1,1) PRIMARY KEY,
+    current_conference_name VARCHAR(255) NOT NULL UNIQUE,
+    short_name VARCHAR(50) UNIQUE NULL,
+    founded_year INT NULL
+);
+
+-- Stores types of sports
+CREATE TABLE sports_conferences.dim_sports (
+    sport_id INT IDENTITY(1,1) PRIMARY KEY,
+    sport_name_normalized VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Stores types of memberships
+CREATE TABLE sports_conferences.dim_membership_types (
+    membership_type_id INT IDENTITY(1,1) PRIMARY KEY,
+    type_name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT NULL
+);
+
+-- Bridge / History Tables
+
+CREATE TABLE sports_conferences.bridge_university_names (
+    university_name_history_id INT IDENTITY(1,1) PRIMARY KEY,
+    university_id INT NOT NULL,
+    university_name VARCHAR(255) NOT NULL,
+    start_year INT NOT NULL,
+    end_year INT NULL,
+    CONSTRAINT fk_uni_name_history_university
+        FOREIGN KEY (university_id)
+        REFERENCES sports_conferences.dim_universities(university_id),
+    UNIQUE (university_id, university_name, start_year)
+);
+
+CREATE TABLE sports_conferences.bridge_university_nicknames (
+    uni_nickname_history_id INT IDENTITY(1,1) PRIMARY KEY,
+    university_id INT NOT NULL,
+    nickname VARCHAR(100) NOT NULL,
+    start_year INT NOT NULL,
+    end_year INT NULL,
+    sport_id INT NULL,
+    CONSTRAINT fk_uni_nickname_history_university
+        FOREIGN KEY (university_id)
+        REFERENCES sports_conferences.dim_universities(university_id),
+    CONSTRAINT fk_uni_nickname_history_sport
+        FOREIGN KEY (sport_id)
+        REFERENCES sports_conferences.dim_sports(sport_id),
+    UNIQUE (university_id, nickname, start_year, COALESCE(sport_id, 0))
+);
+
+CREATE TABLE sports_conferences.bridge_conference_names (
+    conference_name_history_id INT IDENTITY(1,1) PRIMARY KEY,
+    conference_id INT NOT NULL,
+    conference_name VARCHAR(255) NOT NULL,
+    start_year INT NOT NULL,
+    end_year INT NULL,
+    CONSTRAINT fk_conf_name_history_conference
+        FOREIGN KEY (conference_id)
+        REFERENCES sports_conferences.dim_conferences(conference_id),
+    UNIQUE (conference_id, conference_name, start_year)
+);
+
+CREATE TABLE sports_conferences.bridge_conference_divisions (
+    conf_div_history_id INT IDENTITY(1,1) PRIMARY KEY,
+    conference_id INT NOT NULL,
+    division_id INT NOT NULL,
+    start_year INT NOT NULL,
+    end_year INT NULL,
+    CONSTRAINT fk_conf_div_history_conference
+        FOREIGN KEY (conference_id)
+        REFERENCES sports_conferences.dim_conferences(conference_id),
+    CONSTRAINT fk_conf_div_history_division
+        FOREIGN KEY (division_id)
+        REFERENCES sports_conferences.dim_divisions(division_id),
+    UNIQUE (conference_id, division_id, start_year)
+);
+
+-- Fact Table
+
+CREATE TABLE sports_conferences.fact_membership (
+    membership_id INT IDENTITY(1,1) PRIMARY KEY,
+    university_id INT NOT NULL,
+    conference_id INT NOT NULL,
+    membership_type_id INT NOT NULL,
+    joined_year INT NOT NULL,
+    left_year INT NULL,
+    sport_id INT NULL,
+    division_id INT NOT NULL,
+    primary_conference_for_sport_id INT NULL,
+    previous_conference_id INT NULL,
+    next_conference_id INT NULL,
+    reason_for_change TEXT NULL,
+    membership_notes TEXT NULL,
+    CONSTRAINT fk_membership_university
+        FOREIGN KEY (university_id)
+        REFERENCES sports_conferences.dim_universities(university_id),
+    CONSTRAINT fk_membership_conference
+        FOREIGN KEY (conference_id)
+        REFERENCES sports_conferences.dim_conferences(conference_id),
+    CONSTRAINT fk_membership_type
+        FOREIGN KEY (membership_type_id)
+        REFERENCES sports_conferences.dim_membership_types(membership_type_id),
+    CONSTRAINT fk_membership_sport
+        FOREIGN KEY (sport_id)
+        REFERENCES sports_conferences.dim_sports(sport_id),
+    CONSTRAINT fk_membership_division
+        FOREIGN KEY (division_id)
+        REFERENCES sports_conferences.dim_divisions(division_id),
+    CONSTRAINT fk_membership_primary_conf
+        FOREIGN KEY (primary_conference_for_sport_id)
+        REFERENCES sports_conferences.dim_conferences(conference_id),
+    CONSTRAINT fk_membership_prev_conf
+        FOREIGN KEY (previous_conference_id)
+        REFERENCES sports_conferences.dim_conferences(conference_id),
+    CONSTRAINT fk_membership_next_conf
+        FOREIGN KEY (next_conference_id)
+        REFERENCES sports_conferences.dim_conferences(conference_id),
+    UNIQUE (
+        university_id,
+        conference_id,
+        COALESCE(sport_id, 0),
+        division_id,
+        joined_year,
+        COALESCE(left_year, 9999)
+    )
+);
+```
