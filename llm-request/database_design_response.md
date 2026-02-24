@@ -179,55 +179,56 @@ This supports flexible institutional queries.
 # SQL Database Schema
 
 ```sql
--- Create Schema
-CREATE SCHEMA IF NOT EXISTS sports_conferences;
+-- Create Database / Schema (MySQL)
+CREATE DATABASE IF NOT EXISTS sports_conferences;
+USE sports_conferences;
 
 -- Dimension Tables
 
 -- Stores information about athletic associations (e.g., NCAA, NAIA)
-CREATE TABLE sports_conferences.dim_associations (
-    association_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_associations (
+    association_id INT AUTO_INCREMENT PRIMARY KEY,
     association_name VARCHAR(50) NOT NULL UNIQUE
 );
 
 -- Stores information about athletic divisions (e.g., Division I, Division II, NAIA)
-CREATE TABLE sports_conferences.dim_divisions (
-    division_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_divisions (
+    division_id INT AUTO_INCREMENT PRIMARY KEY,
     division_name VARCHAR(50) NOT NULL UNIQUE,
     association_id INT NOT NULL,
     CONSTRAINT fk_division_association
         FOREIGN KEY (association_id)
-        REFERENCES sports_conferences.dim_associations(association_id)
+        REFERENCES dim_associations(association_id)
 );
 
 -- Stores information about states
-CREATE TABLE sports_conferences.dim_states (
-    state_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_states (
+    state_id INT AUTO_INCREMENT PRIMARY KEY,
     state_name VARCHAR(100) NOT NULL UNIQUE,
     state_abbreviation VARCHAR(10) NOT NULL UNIQUE
 );
 
 -- Stores information about cities, linked to states
-CREATE TABLE sports_conferences.dim_cities (
-    city_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_cities (
+    city_id INT AUTO_INCREMENT PRIMARY KEY,
     city_name VARCHAR(100) NOT NULL,
     state_id INT NOT NULL,
     CONSTRAINT fk_city_state
         FOREIGN KEY (state_id)
-        REFERENCES sports_conferences.dim_states(state_id),
+        REFERENCES dim_states(state_id),
     UNIQUE (city_name, state_id)
 );
 
 -- Stores information about university affiliations
-CREATE TABLE sports_conferences.dim_affiliations (
-    affiliation_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_affiliations (
+    affiliation_id INT AUTO_INCREMENT PRIMARY KEY,
     affiliation_type VARCHAR(100) NOT NULL UNIQUE,
     denomination VARCHAR(100) NULL
 );
 
 -- Stores current information about universities
-CREATE TABLE sports_conferences.dim_universities (
-    university_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_universities (
+    university_id INT AUTO_INCREMENT PRIMARY KEY,
     current_university_name VARCHAR(255) NOT NULL UNIQUE,
     founded_year INT NULL,
     current_enrollment INT NULL,
@@ -238,137 +239,140 @@ CREATE TABLE sports_conferences.dim_universities (
     current_affiliation_id INT NULL,
     CONSTRAINT fk_university_city
         FOREIGN KEY (main_campus_city_id)
-        REFERENCES sports_conferences.dim_cities(city_id),
+        REFERENCES dim_cities(city_id),
     CONSTRAINT fk_university_affiliation
         FOREIGN KEY (current_affiliation_id)
-        REFERENCES sports_conferences.dim_affiliations(affiliation_id)
+        REFERENCES dim_affiliations(affiliation_id)
 );
 
 -- Stores current information about conferences
-CREATE TABLE sports_conferences.dim_conferences (
-    conference_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_conferences (
+    conference_id INT AUTO_INCREMENT PRIMARY KEY,
     current_conference_name VARCHAR(255) NOT NULL UNIQUE,
     short_name VARCHAR(50) UNIQUE NULL,
     founded_year INT NULL
 );
 
 -- Stores types of sports
-CREATE TABLE sports_conferences.dim_sports (
-    sport_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_sports (
+    sport_id INT AUTO_INCREMENT PRIMARY KEY,
     sport_name_normalized VARCHAR(100) NOT NULL UNIQUE
 );
 
 -- Stores types of memberships
-CREATE TABLE sports_conferences.dim_membership_types (
-    membership_type_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE dim_membership_types (
+    membership_type_id INT AUTO_INCREMENT PRIMARY KEY,
     type_name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT NULL
 );
 
 -- Bridge / History Tables
 
-CREATE TABLE sports_conferences.bridge_university_names (
-    university_name_history_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE bridge_university_names (
+    university_name_history_id INT AUTO_INCREMENT PRIMARY KEY,
     university_id INT NOT NULL,
     university_name VARCHAR(255) NOT NULL,
     start_year INT NOT NULL,
     end_year INT NULL,
     CONSTRAINT fk_uni_name_history_university
         FOREIGN KEY (university_id)
-        REFERENCES sports_conferences.dim_universities(university_id),
+        REFERENCES dim_universities(university_id),
     UNIQUE (university_id, university_name, start_year)
 );
 
-CREATE TABLE sports_conferences.bridge_university_nicknames (
-    uni_nickname_history_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE bridge_university_nicknames (
+    uni_nickname_history_id INT AUTO_INCREMENT PRIMARY KEY,
     university_id INT NOT NULL,
     nickname VARCHAR(100) NOT NULL,
     start_year INT NOT NULL,
     end_year INT NULL,
     sport_id INT NULL,
+    sport_id_normalized INT GENERATED ALWAYS AS (IFNULL(sport_id, 0)) STORED,
     CONSTRAINT fk_uni_nickname_history_university
         FOREIGN KEY (university_id)
-        REFERENCES sports_conferences.dim_universities(university_id),
+        REFERENCES dim_universities(university_id),
     CONSTRAINT fk_uni_nickname_history_sport
         FOREIGN KEY (sport_id)
-        REFERENCES sports_conferences.dim_sports(sport_id),
-    UNIQUE (university_id, nickname, start_year, COALESCE(sport_id, 0))
+        REFERENCES dim_sports(sport_id),
+    UNIQUE (university_id, nickname, start_year, sport_id_normalized)
 );
 
-CREATE TABLE sports_conferences.bridge_conference_names (
-    conference_name_history_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE bridge_conference_names (
+    conference_name_history_id INT AUTO_INCREMENT PRIMARY KEY,
     conference_id INT NOT NULL,
     conference_name VARCHAR(255) NOT NULL,
     start_year INT NOT NULL,
     end_year INT NULL,
     CONSTRAINT fk_conf_name_history_conference
         FOREIGN KEY (conference_id)
-        REFERENCES sports_conferences.dim_conferences(conference_id),
+        REFERENCES dim_conferences(conference_id),
     UNIQUE (conference_id, conference_name, start_year)
 );
 
-CREATE TABLE sports_conferences.bridge_conference_divisions (
-    conf_div_history_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE bridge_conference_divisions (
+    conf_div_history_id INT AUTO_INCREMENT PRIMARY KEY,
     conference_id INT NOT NULL,
     division_id INT NOT NULL,
     start_year INT NOT NULL,
     end_year INT NULL,
     CONSTRAINT fk_conf_div_history_conference
         FOREIGN KEY (conference_id)
-        REFERENCES sports_conferences.dim_conferences(conference_id),
+        REFERENCES dim_conferences(conference_id),
     CONSTRAINT fk_conf_div_history_division
         FOREIGN KEY (division_id)
-        REFERENCES sports_conferences.dim_divisions(division_id),
+        REFERENCES dim_divisions(division_id),
     UNIQUE (conference_id, division_id, start_year)
 );
 
 -- Fact Table
 
-CREATE TABLE sports_conferences.fact_membership (
-    membership_id INT IDENTITY(1,1) PRIMARY KEY,
+CREATE TABLE fact_membership (
+    membership_id INT AUTO_INCREMENT PRIMARY KEY,
     university_id INT NOT NULL,
     conference_id INT NOT NULL,
     membership_type_id INT NOT NULL,
     joined_year INT NOT NULL,
     left_year INT NULL,
     sport_id INT NULL,
+    sport_id_normalized INT GENERATED ALWAYS AS (IFNULL(sport_id, 0)) STORED,
     division_id INT NOT NULL,
     primary_conference_for_sport_id INT NULL,
     previous_conference_id INT NULL,
     next_conference_id INT NULL,
     reason_for_change TEXT NULL,
     membership_notes TEXT NULL,
+    left_year_normalized INT GENERATED ALWAYS AS (IFNULL(left_year, 9999)) STORED,
     CONSTRAINT fk_membership_university
         FOREIGN KEY (university_id)
-        REFERENCES sports_conferences.dim_universities(university_id),
+        REFERENCES dim_universities(university_id),
     CONSTRAINT fk_membership_conference
         FOREIGN KEY (conference_id)
-        REFERENCES sports_conferences.dim_conferences(conference_id),
+        REFERENCES dim_conferences(conference_id),
     CONSTRAINT fk_membership_type
         FOREIGN KEY (membership_type_id)
-        REFERENCES sports_conferences.dim_membership_types(membership_type_id),
+        REFERENCES dim_membership_types(membership_type_id),
     CONSTRAINT fk_membership_sport
         FOREIGN KEY (sport_id)
-        REFERENCES sports_conferences.dim_sports(sport_id),
+        REFERENCES dim_sports(sport_id),
     CONSTRAINT fk_membership_division
         FOREIGN KEY (division_id)
-        REFERENCES sports_conferences.dim_divisions(division_id),
+        REFERENCES dim_divisions(division_id),
     CONSTRAINT fk_membership_primary_conf
         FOREIGN KEY (primary_conference_for_sport_id)
-        REFERENCES sports_conferences.dim_conferences(conference_id),
+        REFERENCES dim_conferences(conference_id),
     CONSTRAINT fk_membership_prev_conf
         FOREIGN KEY (previous_conference_id)
-        REFERENCES sports_conferences.dim_conferences(conference_id),
+        REFERENCES dim_conferences(conference_id),
     CONSTRAINT fk_membership_next_conf
         FOREIGN KEY (next_conference_id)
-        REFERENCES sports_conferences.dim_conferences(conference_id),
+        REFERENCES dim_conferences(conference_id),
     UNIQUE (
         university_id,
         conference_id,
-        COALESCE(sport_id, 0),
+        sport_id_normalized,
         division_id,
         joined_year,
-        COALESCE(left_year, 9999)
+        left_year_normalized
     )
 );
 ```
