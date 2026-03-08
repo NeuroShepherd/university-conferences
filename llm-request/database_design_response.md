@@ -179,21 +179,21 @@ This supports flexible institutional queries.
 # SQL Database Schema
 
 ```sql
--- Create Database / Schema (MySQL)
-CREATE DATABASE IF NOT EXISTS sports_conferences;
-USE sports_conferences;
+-- Create Schema (PostgreSQL)
+CREATE SCHEMA IF NOT EXISTS sports_conferences;
+SET search_path TO sports_conferences;
 
 -- Dimension Tables
 
 -- Stores information about athletic associations (e.g., NCAA, NAIA)
 CREATE TABLE dim_associations (
-    association_id INT AUTO_INCREMENT PRIMARY KEY,
+    association_id SERIAL PRIMARY KEY,
     association_name VARCHAR(50) NOT NULL UNIQUE
 );
 
 -- Stores information about athletic divisions (e.g., Division I, Division II, NAIA)
 CREATE TABLE dim_divisions (
-    division_id INT AUTO_INCREMENT PRIMARY KEY,
+    division_id SERIAL PRIMARY KEY,
     division_name VARCHAR(50) NOT NULL UNIQUE,
     association_id INT NOT NULL,
     CONSTRAINT fk_division_association
@@ -203,14 +203,14 @@ CREATE TABLE dim_divisions (
 
 -- Stores information about states
 CREATE TABLE dim_states (
-    state_id INT AUTO_INCREMENT PRIMARY KEY,
+    state_id SERIAL PRIMARY KEY,
     state_name VARCHAR(100) NOT NULL UNIQUE,
     state_abbreviation VARCHAR(10) NOT NULL UNIQUE
 );
 
 -- Stores information about cities, linked to states
 CREATE TABLE dim_cities (
-    city_id INT AUTO_INCREMENT PRIMARY KEY,
+    city_id SERIAL PRIMARY KEY,
     city_name VARCHAR(100) NOT NULL,
     state_id INT NOT NULL,
     CONSTRAINT fk_city_state
@@ -221,14 +221,14 @@ CREATE TABLE dim_cities (
 
 -- Stores information about university affiliations
 CREATE TABLE dim_affiliations (
-    affiliation_id INT AUTO_INCREMENT PRIMARY KEY,
+    affiliation_id SERIAL PRIMARY KEY,
     affiliation_type VARCHAR(100) NOT NULL UNIQUE,
     denomination VARCHAR(100) NULL
 );
 
 -- Stores current information about universities
 CREATE TABLE dim_universities (
-    university_id INT AUTO_INCREMENT PRIMARY KEY,
+    university_id SERIAL PRIMARY KEY,
     current_university_name VARCHAR(255) NOT NULL UNIQUE,
     founded_year INT NULL,
     current_enrollment INT NULL,
@@ -247,7 +247,7 @@ CREATE TABLE dim_universities (
 
 -- Stores current information about conferences
 CREATE TABLE dim_conferences (
-    conference_id INT AUTO_INCREMENT PRIMARY KEY,
+    conference_id SERIAL PRIMARY KEY,
     current_conference_name VARCHAR(255) NOT NULL UNIQUE,
     short_name VARCHAR(50) UNIQUE NULL,
     founded_year INT NULL
@@ -255,13 +255,13 @@ CREATE TABLE dim_conferences (
 
 -- Stores types of sports
 CREATE TABLE dim_sports (
-    sport_id INT AUTO_INCREMENT PRIMARY KEY,
+    sport_id SERIAL PRIMARY KEY,
     sport_name_normalized VARCHAR(100) NOT NULL UNIQUE
 );
 
 -- Stores types of memberships
 CREATE TABLE dim_membership_types (
-    membership_type_id INT AUTO_INCREMENT PRIMARY KEY,
+    membership_type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT NULL
 );
@@ -269,7 +269,7 @@ CREATE TABLE dim_membership_types (
 -- Bridge / History Tables
 
 CREATE TABLE bridge_university_names (
-    university_name_history_id INT AUTO_INCREMENT PRIMARY KEY,
+    university_name_history_id SERIAL PRIMARY KEY,
     university_id INT NOT NULL,
     university_name VARCHAR(255) NOT NULL,
     start_year INT NOT NULL,
@@ -281,24 +281,25 @@ CREATE TABLE bridge_university_names (
 );
 
 CREATE TABLE bridge_university_nicknames (
-    uni_nickname_history_id INT AUTO_INCREMENT PRIMARY KEY,
+    uni_nickname_history_id SERIAL PRIMARY KEY,
     university_id INT NOT NULL,
     nickname VARCHAR(100) NOT NULL,
     start_year INT NOT NULL,
     end_year INT NULL,
     sport_id INT NULL,
-    sport_id_normalized INT GENERATED ALWAYS AS (IFNULL(sport_id, 0)) STORED,
+    -- sport_id_normalized is not needed; use expression in unique index
     CONSTRAINT fk_uni_nickname_history_university
         FOREIGN KEY (university_id)
         REFERENCES dim_universities(university_id),
     CONSTRAINT fk_uni_nickname_history_sport
         FOREIGN KEY (sport_id)
         REFERENCES dim_sports(sport_id),
-    UNIQUE (university_id, nickname, start_year, sport_id_normalized)
+    -- Use an expression-based unique index for COALESCE(sport_id, 0)
 );
+CREATE UNIQUE INDEX uq_uni_nickname_history ON bridge_university_nicknames (university_id, nickname, start_year, COALESCE(sport_id, 0));
 
 CREATE TABLE bridge_conference_names (
-    conference_name_history_id INT AUTO_INCREMENT PRIMARY KEY,
+    conference_name_history_id SERIAL PRIMARY KEY,
     conference_id INT NOT NULL,
     conference_name VARCHAR(255) NOT NULL,
     start_year INT NOT NULL,
@@ -310,7 +311,7 @@ CREATE TABLE bridge_conference_names (
 );
 
 CREATE TABLE bridge_conference_divisions (
-    conf_div_history_id INT AUTO_INCREMENT PRIMARY KEY,
+    conf_div_history_id SERIAL PRIMARY KEY,
     conference_id INT NOT NULL,
     division_id INT NOT NULL,
     start_year INT NOT NULL,
@@ -327,21 +328,19 @@ CREATE TABLE bridge_conference_divisions (
 -- Fact Table
 
 CREATE TABLE fact_membership (
-    membership_id INT AUTO_INCREMENT PRIMARY KEY,
+    membership_id SERIAL PRIMARY KEY,
     university_id INT NOT NULL,
     conference_id INT NOT NULL,
     membership_type_id INT NOT NULL,
     joined_year INT NOT NULL,
     left_year INT NULL,
     sport_id INT NULL,
-    sport_id_normalized INT GENERATED ALWAYS AS (IFNULL(sport_id, 0)) STORED,
     division_id INT NOT NULL,
     primary_conference_for_sport_id INT NULL,
     previous_conference_id INT NULL,
     next_conference_id INT NULL,
     reason_for_change TEXT NULL,
     membership_notes TEXT NULL,
-    left_year_normalized INT GENERATED ALWAYS AS (IFNULL(left_year, 9999)) STORED,
     CONSTRAINT fk_membership_university
         FOREIGN KEY (university_id)
         REFERENCES dim_universities(university_id),
@@ -365,14 +364,15 @@ CREATE TABLE fact_membership (
         REFERENCES dim_conferences(conference_id),
     CONSTRAINT fk_membership_next_conf
         FOREIGN KEY (next_conference_id)
-        REFERENCES dim_conferences(conference_id),
-    UNIQUE (
-        university_id,
-        conference_id,
-        sport_id_normalized,
-        division_id,
-        joined_year,
-        left_year_normalized
-    )
+        REFERENCES dim_conferences(conference_id)
+    -- Use a unique index with COALESCE for sport_id and left_year
+);
+CREATE UNIQUE INDEX uq_fact_membership ON fact_membership (
+    university_id,
+    conference_id,
+    COALESCE(sport_id, 0),
+    division_id,
+    joined_year,
+    COALESCE(left_year, 9999)
 );
 ```
