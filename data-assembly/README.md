@@ -26,6 +26,7 @@ The following describes the execution order of the scripts.
 5. `identify_timeline_maps.py` finds which conference pages have a dedicated "Membership timeline" section which use a particular mapping/coding system that lends itself well to being an accurate record for a school's conference history. This script gets the links to this maps.
 6. `query_membership_maps.py` queries the Wiki API for these pages, and saves the response.
 7. `add_timeline_maps_to_other_data.py` combines the regular History and Member Universities pages with the separate, explicit Membership timeline information. Note: while the Membership Timelines typically appear as an h3 section within the h2 Members sections, what is displayed is an image rather than parseable text so adding in this information is *not* redundant.
+8. `sanity_check_final_data.py` checks that the `final_data.json` file contains conferences as expected.
 
 
 
