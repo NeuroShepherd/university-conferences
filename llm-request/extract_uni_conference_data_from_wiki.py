@@ -60,6 +60,22 @@ def parse_response_json(response_text):
     }
 
 
+def is_completed_result(result):
+    if not isinstance(result, dict):
+        return False
+
+    parsed_response = result.get("parsed_response")
+    if not isinstance(parsed_response, dict):
+        return False
+
+    return all(key in parsed_response for key in EXPECTED_RESPONSE_KEYS)
+
+
+def save_results(all_results):
+    with open(OUTPUT_PATH, "w") as f:
+        json.dump(all_results, f, indent=2)
+
+
 with open("data-assembly/json/final_data.json", "r") as f:
     conferences_data = json.load(f)
 
@@ -96,28 +112,47 @@ else:
 
 
 for conf_name, conf_data in conferences_data.items():
+    existing_result = all_results.get(conf_name)
+    if is_completed_result(existing_result):
+        print(f"Skipping {conf_name}; already processed")
+        continue
+
     content = [
         database_design_notes,
         prompt,
         json.dumps(conf_data, indent=2)
     ]
 
-    response = client.models.generate_content(
-        model=model,
-        contents=content
-    )
+    response = None
 
-    parsed_response = parse_response_json(response.text)
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=content
+        )
 
-    all_results[conf_name] = {
-        "conf_name": conf_name,
-        "response_text": response.text,
-        "parsed_response": parsed_response,
-        "usage_metadata": to_json_safe(response.usage_metadata),
-    }
+        parsed_response = parse_response_json(response.text)
 
-    with open(OUTPUT_PATH, "w") as f:
-        json.dump(all_results, f, indent=2)
+        all_results[conf_name] = {
+            "conf_name": conf_name,
+            "response_text": response.text,
+            "parsed_response": parsed_response,
+            "usage_metadata": to_json_safe(response.usage_metadata),
+            "error": None,
+        }
 
-    print(f"Processed {conf_name}")
+        save_results(all_results)
+        print(f"Processed {conf_name}")
+
+    except Exception as exc:
+        all_results[conf_name] = {
+            "conf_name": conf_name,
+            "response_text": None if response is None else response.text,
+            "parsed_response": None,
+            "usage_metadata": None if response is None else to_json_safe(response.usage_metadata),
+            "error": str(exc),
+        }
+
+        save_results(all_results)
+        print(f"Failed {conf_name}: {exc}")
 
