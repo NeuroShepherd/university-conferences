@@ -17,7 +17,6 @@ client = genai.Client(api_key=api_key)
 model = "gemini-2.5-flash"
 
 OUTPUT_PATH = "llm-request/extracted_data_responses.json"
-EXPECTED_RESPONSE_KEYS = ["notes", "commands", "text_description"]
 
 
 def to_json_safe(value):
@@ -33,7 +32,7 @@ def to_json_safe(value):
     return value
 
 
-def parse_response_json(response_text):
+def clean_response_text(response_text):
     cleaned_text = response_text.strip()
 
     if cleaned_text.startswith("```"):
@@ -44,36 +43,31 @@ def parse_response_json(response_text):
             lines = lines[:-1]
         cleaned_text = "\n".join(lines).strip()
 
-    parsed = json.loads(cleaned_text)
-
-    if not isinstance(parsed, dict):
-        raise ValueError("response.text did not parse to a JSON object")
-
-    missing_keys = [key for key in EXPECTED_RESPONSE_KEYS if key not in parsed]
-    if missing_keys:
-        raise ValueError(f"response.text is missing expected keys: {missing_keys}")
-
-    return {
-        "notes": parsed.get("notes", []),
-        "commands": parsed.get("commands", []),
-        "text_description": parsed.get("text_description", []),
-    }
+    return cleaned_text
 
 
 def is_completed_result(result):
     if not isinstance(result, dict):
         return False
 
-    parsed_response = result.get("parsed_response")
-    if not isinstance(parsed_response, dict):
+    if result.get("error") is not None:
         return False
 
-    return all(key in parsed_response for key in EXPECTED_RESPONSE_KEYS)
+    sql_text = result.get("sql_text")
+    if isinstance(sql_text, str) and sql_text.strip() != "":
+        return True
+
+    parsed_response = result.get("parsed_response")
+    return isinstance(parsed_response, dict)
 
 
 def save_results(all_results):
-    with open(OUTPUT_PATH, "w") as f:
+    temp_output_path = f"{OUTPUT_PATH}.tmp"
+
+    with open(temp_output_path, "w") as f:
         json.dump(all_results, f, indent=2)
+
+    os.replace(temp_output_path, OUTPUT_PATH)
 
 
 with open("data-assembly/json/final_data.json", "r") as f:
@@ -131,12 +125,15 @@ for conf_name, conf_data in conferences_data.items():
             contents=content
         )
 
-        parsed_response = parse_response_json(response.text)
+        cleaned_response_text = clean_response_text(response.text)
+
+        if not cleaned_response_text:
+            raise ValueError("response.text was empty")
 
         all_results[conf_name] = {
             "conf_name": conf_name,
+            "sql_text": cleaned_response_text,
             "response_text": response.text,
-            "parsed_response": parsed_response,
             "usage_metadata": to_json_safe(response.usage_metadata),
             "error": None,
         }
@@ -147,8 +144,8 @@ for conf_name, conf_data in conferences_data.items():
     except Exception as exc:
         all_results[conf_name] = {
             "conf_name": conf_name,
+            "sql_text": None,
             "response_text": None if response is None else response.text,
-            "parsed_response": None,
             "usage_metadata": None if response is None else to_json_safe(response.usage_metadata),
             "error": str(exc),
         }
