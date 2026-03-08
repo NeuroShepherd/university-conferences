@@ -1,9 +1,9 @@
 
-# This script will be the first approach to extracting conference data from Wikipedia. 
+# This script will be the first approach to extracting conference data from Wikipedia.
 
 
-import os, random, json
-import pandas as pd
+import json
+import os
 from dotenv import load_dotenv
 from google import genai
 
@@ -14,7 +14,22 @@ api_key = os.environ.get("GEMINI_API_KEY")
 print(f"Using key {api_key[:6]}...")
 
 client = genai.Client(api_key=api_key)
-model="gemini-2.5-flash"
+model = "gemini-2.5-flash"
+
+OUTPUT_PATH = "llm-request/extracted_data_responses.json"
+
+
+def to_json_safe(value):
+    if value is None:
+        return None
+
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+
+    if hasattr(value, "dict"):
+        return value.dict()
+
+    return value
 
 
 with open("data-assembly/json/final_data.json", "r") as f:
@@ -45,26 +60,33 @@ with open("llm-request/extract_data_wiki_prompt.md", "r") as f:
 with open("llm-request/database_design_response.md", "r") as f:
     database_design_notes = f.read()
 
+if os.path.exists(OUTPUT_PATH):
+    with open(OUTPUT_PATH, "r") as f:
+        all_results = json.load(f)
+else:
+    all_results = {}
 
 
+for conf_name, conf_data in conferences_data.items():
+    content = [
+        database_design_notes,
+        prompt,
+        json.dumps(conf_data, indent=2)
+    ]
 
-# testing round
+    response = client.models.generate_content(
+        model=model,
+        contents=content
+    )
 
-first_key, first_value = next(iter(conferences_data.items()))
+    all_results[conf_name] = {
+        "conf_name": conf_name,
+        "response_text": response.text,
+        "usage_metadata": to_json_safe(response.usage_metadata),
+    }
 
-content = [
-    database_design_notes,
-    prompt,
-    json.dumps(first_value, indent=2)
-]
+    with open(OUTPUT_PATH, "w") as f:
+        json.dump(all_results, f, indent=2)
 
-response = client.models.generate_content(
-    model=model,
-    contents=content
-)
+    print(f"Processed {conf_name}")
 
-print(response.text)
-
-# save response to file
-with open("llm-request/extracted_data_response_TEST.md", "w") as f:
-    f.write(response.text)
