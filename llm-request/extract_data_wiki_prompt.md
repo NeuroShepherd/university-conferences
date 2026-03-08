@@ -25,11 +25,16 @@ It is far more acceptable to not insert data than to insert incorrect data. That
 
 # Response Format
 
-I expect your response to formatted in JSON with a `notes` field for any useful information or points of ambiguity where you believe I should be provided with information. Following this, there will be a `commands` field where you will include the SQL commands for inserting the appropriate data.
+I expect your response to formatted in JSON with the following fields:
+
+* a `notes` field for any useful information or points of ambiguity where you believe I should be provided with information
+* a `commands` field where you will include the SQL commands for inserting the appropriate data.
+* a `text_description` field which will briefly describe the changes proposed in `commands`, but in a human-readable format. This information will later be used for cross-checking results across conference pages so you must write an accurate description.
 
 ```json
 {
     "notes": [],
-    "commands": []
+    "commands": [],
+    "text_description": [],
 }
 ```

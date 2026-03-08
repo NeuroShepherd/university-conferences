@@ -17,6 +17,7 @@ client = genai.Client(api_key=api_key)
 model = "gemini-2.5-flash"
 
 OUTPUT_PATH = "llm-request/extracted_data_responses.json"
+EXPECTED_RESPONSE_KEYS = ["notes", "commands", "text_description"]
 
 
 def to_json_safe(value):
@@ -30,6 +31,33 @@ def to_json_safe(value):
         return value.dict()
 
     return value
+
+
+def parse_response_json(response_text):
+    cleaned_text = response_text.strip()
+
+    if cleaned_text.startswith("```"):
+        lines = cleaned_text.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned_text = "\n".join(lines).strip()
+
+    parsed = json.loads(cleaned_text)
+
+    if not isinstance(parsed, dict):
+        raise ValueError("response.text did not parse to a JSON object")
+
+    missing_keys = [key for key in EXPECTED_RESPONSE_KEYS if key not in parsed]
+    if missing_keys:
+        raise ValueError(f"response.text is missing expected keys: {missing_keys}")
+
+    return {
+        "notes": parsed.get("notes", []),
+        "commands": parsed.get("commands", []),
+        "text_description": parsed.get("text_description", []),
+    }
 
 
 with open("data-assembly/json/final_data.json", "r") as f:
@@ -79,9 +107,12 @@ for conf_name, conf_data in conferences_data.items():
         contents=content
     )
 
+    parsed_response = parse_response_json(response.text)
+
     all_results[conf_name] = {
         "conf_name": conf_name,
         "response_text": response.text,
+        "parsed_response": parsed_response,
         "usage_metadata": to_json_safe(response.usage_metadata),
     }
 
