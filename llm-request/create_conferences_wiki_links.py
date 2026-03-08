@@ -1,3 +1,11 @@
+
+
+# Note: at the time of creation, this script is not strictly necessary, but it was used to identify 
+# the correct Wikipedia links for the conferences that didn't have a direct match. It can be used 
+# in the future if we want to expand our dataset to include more conferences and need to identify 
+# the correct Wikipedia links for those conferences.
+
+
 import requests, json, time
 import pandas as pd
 from urllib.parse import quote_plus, unquote, urlparse
