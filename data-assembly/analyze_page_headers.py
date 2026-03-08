@@ -3,7 +3,7 @@
 import json
 
 
-with open("data-assembly/conference_section_headers.json", "r") as f:
+with open("data-assembly/json/conference_section_headers.json", "r") as f:
     json_data = json.load(f)
 
 

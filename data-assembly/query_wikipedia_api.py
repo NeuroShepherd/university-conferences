@@ -14,7 +14,7 @@ API = "https://en.wikipedia.org/w/api.php"
 
 
 
-with open("conferences.csv", "r") as f:
+with open("data-assembly/conferences.csv", "r") as f:
     conferences = pd.read_csv(f)
 
 
