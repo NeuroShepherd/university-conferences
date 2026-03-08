@@ -3,9 +3,8 @@
 
 # Snowflake Schema Design for Sports Conference Membership Database
 
-The goal is to create a comprehensive, normalized database schema using a snowflake design. This involves identifying core entities, their attributes, and their relationships, paying close attention to temporal data and complex scenarios like split conference memberships across sports or divisions.
+The goal is to create a comprehensive, normalized database schema using a snowflake design. This involves identifying core entities, their attributes, and their relationships, paying close attention to temporal data and complex scenarios like split conference memberships across sports or divisions, as well as the fact that universities do not all sponsor the same sports.
 
----
 
 ## Considerations and Design Decisions
 
@@ -46,7 +45,6 @@ Dimensions like `dim_universities` and `dim_conferences` are not flat.
 
 This layered structure is characteristic of a **snowflake schema**.
 
----
 
 ### 2. Temporal Data Handling (Membership Over Time)
 
@@ -68,6 +66,7 @@ For attributes that change over time (e.g., names), dedicated bridge tables are 
 * `bridge_university_names`
 * `bridge_conference_names`
 * `bridge_university_nicknames`
+* `bridge_university_sports`
 * `bridge_conference_divisions`
 
 These store historical versions with:
@@ -77,7 +76,8 @@ These store historical versions with:
 
 The `dim_universities` and `dim_conferences` tables store only the **current state** for reporting convenience.
 
----
+Because sport sponsorship can also change over time, it should be tracked in a dedicated bridge table rather than inferred only from conference memberships.
+
 
 ### 3. Complex Membership Scenarios
 
@@ -89,6 +89,7 @@ The `fact_membership` table includes `sport_id` as a foreign key.
 
   * `sport_id` = `NULL`
   * `membership_type_id` indicates "all sports"
+  * This should be interpreted as the university's default conference membership for all sports it sponsors, except where a sport-specific row overrides it
 
 * **Associate Member (sport)** or **Full Member (non-football)**
 
@@ -96,7 +97,6 @@ The `fact_membership` table includes `sport_id` as a foreign key.
 
 This allows multiple simultaneous memberships for a single university across different sports.
 
----
 
 #### Sports Split Across Divisions
 
@@ -106,10 +106,27 @@ This handles cases such as:
 
 * A university competing in one division overall
 * A specific sport competing in a different division
+* A university having a default division for most sports but one or more sport-specific exceptions (for example, Johns Hopkins playing most sports in Division III but men's and women's lacrosse in Division I)
 
 `dim_divisions` includes both NCAA divisions and NAIA.
 
 ---
+
+#### Universities Do Not Sponsor the Same Sports
+
+The `fact_membership` table correctly models **conference membership**, but by itself it does **not fully model sport sponsorship**.
+
+That distinction matters because:
+
+* not every university offers every sport
+* a university may sponsor a sport without conference membership for that sport
+* a university may add or discontinue a sport over time
+* a university may sponsor a sport at a different division level than its default level
+
+To model this properly, the schema should include a separate table such as `bridge_university_sports`.
+
+This table records which sports a university sponsors over time, independent of conference affiliation. `fact_membership` then records conference alignment for the university overall or for a specific sponsored sport.
+
 
 #### University Name Changes
 
@@ -119,13 +136,11 @@ This handles cases such as:
 
 * `current_university_name`
 
----
 
 #### Conference Name Changes
 
 `bridge_conference_names` tracks historical conference names.
 
----
 
 #### Nicknames
 
@@ -139,13 +154,11 @@ This handles cases such as:
 
 * `current_nickname` (for convenience)
 
----
 
 #### Primary Conference for Affiliates
 
 `primary_conference_for_sport_id` in `fact_membership` stores the main conference home for affiliate members.
 
----
 
 ### 4. Date/Year Handling
 
@@ -160,7 +173,6 @@ These represent calendar years and align with how membership timelines are typic
 
 This avoids unnecessary complexity from full `DATE` types when only year-level granularity is available.
 
----
 
 ### 5. Location and Affiliation Details
 
@@ -174,24 +186,19 @@ This avoids unnecessary complexity from full `DATE` types when only year-level g
 
 This supports flexible institutional queries.
 
----
 
 # SQL Database Schema
 
 ```sql
--- Create Schema (PostgreSQL)
 CREATE SCHEMA IF NOT EXISTS sports_conferences;
 SET search_path TO sports_conferences;
 
--- Dimension Tables
 
--- Stores information about athletic associations (e.g., NCAA, NAIA)
 CREATE TABLE dim_associations (
     association_id SERIAL PRIMARY KEY,
     association_name VARCHAR(50) NOT NULL UNIQUE
 );
 
--- Stores information about athletic divisions (e.g., Division I, Division II, NAIA)
 CREATE TABLE dim_divisions (
     division_id SERIAL PRIMARY KEY,
     division_name VARCHAR(50) NOT NULL UNIQUE,
@@ -201,14 +208,12 @@ CREATE TABLE dim_divisions (
         REFERENCES dim_associations(association_id)
 );
 
--- Stores information about states
 CREATE TABLE dim_states (
     state_id SERIAL PRIMARY KEY,
     state_name VARCHAR(100) NOT NULL UNIQUE,
     state_abbreviation VARCHAR(10) NOT NULL UNIQUE
 );
 
--- Stores information about cities, linked to states
 CREATE TABLE dim_cities (
     city_id SERIAL PRIMARY KEY,
     city_name VARCHAR(100) NOT NULL,
@@ -219,14 +224,12 @@ CREATE TABLE dim_cities (
     UNIQUE (city_name, state_id)
 );
 
--- Stores information about university affiliations
 CREATE TABLE dim_affiliations (
     affiliation_id SERIAL PRIMARY KEY,
     affiliation_type VARCHAR(100) NOT NULL UNIQUE,
     denomination VARCHAR(100) NULL
 );
 
--- Stores current information about universities
 CREATE TABLE dim_universities (
     university_id SERIAL PRIMARY KEY,
     current_university_name VARCHAR(255) NOT NULL UNIQUE,
@@ -245,7 +248,6 @@ CREATE TABLE dim_universities (
         REFERENCES dim_affiliations(affiliation_id)
 );
 
--- Stores current information about conferences
 CREATE TABLE dim_conferences (
     conference_id SERIAL PRIMARY KEY,
     current_conference_name VARCHAR(255) NOT NULL UNIQUE,
@@ -253,20 +255,17 @@ CREATE TABLE dim_conferences (
     founded_year INT NULL
 );
 
--- Stores types of sports
 CREATE TABLE dim_sports (
     sport_id SERIAL PRIMARY KEY,
     sport_name_normalized VARCHAR(100) NOT NULL UNIQUE
 );
 
--- Stores types of memberships
 CREATE TABLE dim_membership_types (
     membership_type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT NULL
 );
 
--- Bridge / History Tables
 
 CREATE TABLE bridge_university_names (
     university_name_history_id SERIAL PRIMARY KEY,
@@ -298,6 +297,32 @@ CREATE TABLE bridge_university_nicknames (
 );
 CREATE UNIQUE INDEX uq_uni_nickname_history ON bridge_university_nicknames (university_id, nickname, start_year, COALESCE(sport_id, 0));
 
+CREATE TABLE bridge_university_sports (
+    university_sport_history_id SERIAL PRIMARY KEY,
+    university_id INT NOT NULL,
+    sport_id INT NOT NULL,
+    division_id INT NULL,
+    start_year INT NOT NULL,
+    end_year INT NULL,
+    is_varsity BOOLEAN NOT NULL DEFAULT TRUE,
+    sport_notes TEXT NULL,
+    CONSTRAINT fk_uni_sport_history_university
+        FOREIGN KEY (university_id)
+        REFERENCES dim_universities(university_id),
+    CONSTRAINT fk_uni_sport_history_sport
+        FOREIGN KEY (sport_id)
+        REFERENCES dim_sports(sport_id),
+    CONSTRAINT fk_uni_sport_history_division
+        FOREIGN KEY (division_id)
+        REFERENCES dim_divisions(division_id)
+);
+CREATE UNIQUE INDEX uq_uni_sport_history ON bridge_university_sports (
+    university_id,
+    sport_id,
+    start_year,
+    COALESCE(division_id, 0)
+);
+
 CREATE TABLE bridge_conference_names (
     conference_name_history_id SERIAL PRIMARY KEY,
     conference_id INT NOT NULL,
@@ -326,6 +351,11 @@ CREATE TABLE bridge_conference_divisions (
 );
 
 -- Fact Table
+
+-- Records conference affiliation for a university as a whole or for a
+-- specific sponsored sport. A row with sport_id = NULL is the default
+-- membership context for all sponsored sports not overridden by a
+-- sport-specific membership row.
 
 CREATE TABLE fact_membership (
     membership_id SERIAL PRIMARY KEY,
