@@ -355,7 +355,14 @@ GENDER_PREFIX_MAP = {
 
 
 def normalize_space(value: str) -> str:
-    return " ".join(str(value).replace("\u2013", "-").replace("\u2014", "-").replace("\u2019", "'").split()).strip()
+    return " ".join(
+        str(value)
+        .replace("_", " ")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("\u2019", "'")
+        .split()
+    ).strip()
 
 
 def title_case_preserving_small_words(value: str) -> str:
@@ -791,7 +798,10 @@ def resolve_ref_value(value: Any, ref_table: str, id_maps: dict[str, dict[int, d
                 if is_unresolved(key_value):
                     return None
                 key[key_field] = apply_alias_to_scalar_ref(ref_table, key_field, key_value)
-        return {"kind": "ref", "table": ref_table, "key": normalize_ref_key(ref_table, key)}
+        ref = {"kind": "ref", "table": ref_table, "key": normalize_ref_key(ref_table, key)}
+        if ref_to_sql(ref) is None:
+            return None
+        return ref
     if is_unresolved(value):
         return None
     return value
@@ -808,9 +818,6 @@ def transform_record(record: dict[str, Any], id_maps: dict[str, dict[int, dict[s
     schema = TABLE_SCHEMAS[table]
     row = deepcopy(record["row"])
 
-    if any(is_unresolved(value) for value in row.values()):
-        return None, "contains_unresolved_expression"
-
     row.pop(schema["pk"], None)
     transformed: dict[str, Any] = {}
 
@@ -822,9 +829,15 @@ def transform_record(record: dict[str, Any], id_maps: dict[str, dict[int, dict[s
         if ref_table:
             resolved = resolve_ref_value(value, ref_table, id_maps)
             if resolved is None and value is not None:
-                return None, f"unresolved_foreign_key:{field}"
+                if field in schema["required"]:
+                    return None, f"unresolved_foreign_key:{field}"
+                continue
             transformed[field] = resolved
         else:
+            if is_unresolved(value):
+                if field in schema["required"]:
+                    return None, "contains_unresolved_expression"
+                continue
             transformed[field] = alias_string(table, field, value)
 
     for required in schema["required"]:
@@ -907,6 +920,194 @@ def prune_unused_dim_cities(records: list[dict[str, Any]]) -> tuple[list[dict[st
     return kept, pruned
 
 
+def prune_unresolvable_bridge_university_names(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    university_name_keys: set[str] = set()
+    for record in records:
+        if record["table"] != "dim_universities":
+            continue
+        current_name = record["row"].get("current_university_name")
+        if isinstance(current_name, str):
+            university_name_keys.add(json_key({"current_university_name": current_name}))
+
+    if not university_name_keys:
+        return records, 0
+
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    for record in records:
+        if record["table"] != "bridge_university_names":
+            kept.append(record)
+            continue
+        university_ref = record["row"].get("university_id")
+        if not (isinstance(university_ref, dict) and university_ref.get("kind") == "ref" and university_ref.get("table") == "dim_universities"):
+            pruned += 1
+            continue
+        ref_key = university_ref.get("key", {})
+        if json_key(ref_key) in university_name_keys:
+            kept.append(record)
+        else:
+            pruned += 1
+    return kept, pruned
+
+
+def prune_unresolvable_bridge_university_nicknames(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    university_name_keys: set[str] = set()
+    for record in records:
+        if record["table"] != "dim_universities":
+            continue
+        current_name = record["row"].get("current_university_name")
+        if isinstance(current_name, str):
+            university_name_keys.add(json_key({"current_university_name": current_name}))
+
+    if not university_name_keys:
+        return records, 0
+
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    for record in records:
+        if record["table"] != "bridge_university_nicknames":
+            kept.append(record)
+            continue
+        university_ref = record["row"].get("university_id")
+        if not (isinstance(university_ref, dict) and university_ref.get("kind") == "ref" and university_ref.get("table") == "dim_universities"):
+            pruned += 1
+            continue
+        ref_key = university_ref.get("key", {})
+        if json_key(ref_key) in university_name_keys:
+            kept.append(record)
+        else:
+            pruned += 1
+    return kept, pruned
+
+
+def prune_unresolvable_bridge_university_sports(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, int]:
+    university_name_keys: set[str] = set()
+    sport_name_keys: set[str] = set()
+    division_name_keys: set[str] = set()
+
+    for record in records:
+        table = record["table"]
+        row = record["row"]
+        if table == "dim_universities":
+            current_name = row.get("current_university_name")
+            if isinstance(current_name, str):
+                university_name_keys.add(json_key({"current_university_name": current_name}))
+        elif table == "dim_sports":
+            sport_name = row.get("sport_name_normalized")
+            if isinstance(sport_name, str):
+                sport_name_keys.add(json_key({"sport_name_normalized": sport_name}))
+        elif table == "dim_divisions":
+            division_name = row.get("division_name")
+            if isinstance(division_name, str):
+                division_name_keys.add(json_key({"division_name": division_name}))
+
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    nulled_optional_divisions = 0
+    for record in records:
+        if record["table"] != "bridge_university_sports":
+            kept.append(record)
+            continue
+
+        row = deepcopy(record["row"])
+        university_ref = row.get("university_id")
+        sport_ref = row.get("sport_id")
+        division_ref = row.get("division_id")
+
+        if not (isinstance(university_ref, dict) and university_ref.get("kind") == "ref" and university_ref.get("table") == "dim_universities"):
+            pruned += 1
+            continue
+        if json_key(university_ref.get("key", {})) not in university_name_keys:
+            pruned += 1
+            continue
+
+        if not (isinstance(sport_ref, dict) and sport_ref.get("kind") == "ref" and sport_ref.get("table") == "dim_sports"):
+            pruned += 1
+            continue
+        if json_key(sport_ref.get("key", {})) not in sport_name_keys:
+            pruned += 1
+            continue
+
+        if isinstance(division_ref, dict) and division_ref.get("kind") == "ref" and division_ref.get("table") == "dim_divisions":
+            if json_key(division_ref.get("key", {})) not in division_name_keys:
+                row.pop("division_id", None)
+                nulled_optional_divisions += 1
+
+        updated = record.copy()
+        updated["row"] = row
+        kept.append(updated)
+
+    return kept, pruned, nulled_optional_divisions
+
+
+def prune_unresolvable_bridge_conference_names(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    conference_name_keys: set[str] = set()
+    for record in records:
+        if record["table"] != "dim_conferences":
+            continue
+        current_name = record["row"].get("current_conference_name")
+        if isinstance(current_name, str):
+            conference_name_keys.add(json_key({"current_conference_name": current_name}))
+
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    for record in records:
+        if record["table"] != "bridge_conference_names":
+            kept.append(record)
+            continue
+
+        conference_ref = record["row"].get("conference_id")
+        if not (isinstance(conference_ref, dict) and conference_ref.get("kind") == "ref" and conference_ref.get("table") == "dim_conferences"):
+            pruned += 1
+            continue
+        if json_key(conference_ref.get("key", {})) not in conference_name_keys:
+            pruned += 1
+            continue
+        kept.append(record)
+
+    return kept, pruned
+
+
+def prune_unresolvable_bridge_conference_divisions(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    conference_name_keys: set[str] = set()
+    division_name_keys: set[str] = set()
+    for record in records:
+        if record["table"] == "dim_conferences":
+            current_name = record["row"].get("current_conference_name")
+            if isinstance(current_name, str):
+                conference_name_keys.add(json_key({"current_conference_name": current_name}))
+        elif record["table"] == "dim_divisions":
+            division_name = record["row"].get("division_name")
+            if isinstance(division_name, str):
+                division_name_keys.add(json_key({"division_name": division_name}))
+
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    for record in records:
+        if record["table"] != "bridge_conference_divisions":
+            kept.append(record)
+            continue
+
+        conference_ref = record["row"].get("conference_id")
+        division_ref = record["row"].get("division_id")
+        if not (isinstance(conference_ref, dict) and conference_ref.get("kind") == "ref" and conference_ref.get("table") == "dim_conferences"):
+            pruned += 1
+            continue
+        if json_key(conference_ref.get("key", {})) not in conference_name_keys:
+            pruned += 1
+            continue
+
+        if not (isinstance(division_ref, dict) and division_ref.get("kind") == "ref" and division_ref.get("table") == "dim_divisions"):
+            pruned += 1
+            continue
+        if json_key(division_ref.get("key", {})) not in division_name_keys:
+            pruned += 1
+            continue
+        kept.append(record)
+
+    return kept, pruned
+
+
 def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -970,16 +1171,26 @@ def serialize_value(value: Any) -> str | None:
 def build_insert_sql(table: str, row: dict[str, Any]) -> str | None:
     columns = []
     values = []
+    required_ref_predicates = []
     for column in TABLE_SCHEMAS[table]["columns"]:
         if column not in row:
             continue
-        sql_value = serialize_value(row[column])
+        raw_value = row[column]
+        sql_value = serialize_value(raw_value)
         if sql_value is None:
             return None
         columns.append(column)
         values.append(sql_value)
+        if column in TABLE_SCHEMAS[table]["required"] and isinstance(raw_value, dict) and raw_value.get("kind") == "ref":
+            required_ref_predicates.append(f"{sql_value} IS NOT NULL")
     if not columns:
         return None
+    if required_ref_predicates:
+        return (
+            f"INSERT INTO {table} ({', '.join(columns)}) "
+            f"SELECT {', '.join(values)} "
+            f"WHERE {' AND '.join(required_ref_predicates)} ON CONFLICT DO NOTHING;"
+        )
     return f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)}) ON CONFLICT DO NOTHING;"
 
 
@@ -1036,6 +1247,11 @@ def main() -> None:
 
     chosen_records, dedupe_dropped = choose_representatives(valid_records)
     chosen_records, pruned_unused_cities = prune_unused_dim_cities(chosen_records)
+    chosen_records, pruned_unresolvable_university_names = prune_unresolvable_bridge_university_names(chosen_records)
+    chosen_records, pruned_unresolvable_university_nicknames = prune_unresolvable_bridge_university_nicknames(chosen_records)
+    chosen_records, pruned_unresolvable_university_sports, nulled_optional_sport_divisions = prune_unresolvable_bridge_university_sports(chosen_records)
+    chosen_records, pruned_unresolvable_conference_names = prune_unresolvable_bridge_conference_names(chosen_records)
+    chosen_records, pruned_unresolvable_conference_divisions = prune_unresolvable_bridge_conference_divisions(chosen_records)
     sql_skipped = write_sql(chosen_records, Path(args.output_sql))
 
     summary = {
@@ -1043,7 +1259,17 @@ def main() -> None:
         "valid_records_after_schema_filter": len(valid_records),
         "records_in_final_sql": len(chosen_records) - sum(sql_skipped.values()),
         "records_deduped_away_by_unique_key": dedupe_dropped,
-        "records_pruned_after_reference_check": {"dim_cities": pruned_unused_cities},
+        "records_pruned_after_reference_check": {
+            "dim_cities": pruned_unused_cities,
+            "bridge_university_names": pruned_unresolvable_university_names,
+            "bridge_university_nicknames": pruned_unresolvable_university_nicknames,
+            "bridge_university_sports": pruned_unresolvable_university_sports,
+            "bridge_conference_names": pruned_unresolvable_conference_names,
+            "bridge_conference_divisions": pruned_unresolvable_conference_divisions,
+        },
+        "optional_references_removed": {
+            "bridge_university_sports.division_id": nulled_optional_sport_divisions,
+        },
         "records_skipped_during_sql_generation": sql_skipped,
         "skipped_reasons": {table: dict(reasons) for table, reasons in skipped_reasons.items()},
     }
