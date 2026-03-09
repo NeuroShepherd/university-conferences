@@ -1,0 +1,101 @@
+{
+  "raw_records_considered": 11503,
+  "valid_records_after_schema_filter": 6362,
+  "records_in_final_sql": 5097,
+  "records_deduped_away_by_unique_key": {
+    "dim_associations": 3,
+    "dim_divisions": 17,
+    "dim_states": 0,
+    "dim_cities": 258,
+    "dim_affiliations": 296,
+    "dim_sports": 73,
+    "dim_membership_types": 64,
+    "dim_universities": 0,
+    "dim_conferences": 0,
+    "bridge_university_names": 12,
+    "bridge_university_nicknames": 28,
+    "bridge_university_sports": 0,
+    "bridge_conference_names": 2,
+    "bridge_conference_divisions": 3,
+    "fact_membership": 1
+  },
+  "records_pruned_after_reference_check": {
+    "dim_cities": 387
+  },
+  "records_skipped_during_sql_generation": {
+    "dim_universities": 71,
+    "bridge_university_names": 1,
+    "bridge_university_nicknames": 1,
+    "bridge_university_sports": 1,
+    "bridge_conference_names": 1,
+    "bridge_conference_divisions": 10,
+    "fact_membership": 36
+  },
+  "skipped_reasons": {
+    "dim_divisions": {
+      "contains_unresolved_expression": 36,
+      "unresolved_foreign_key:association_id": 8
+    },
+    "dim_states": {
+      "contains_unresolved_expression": 5,
+      "missing_required:state_abbreviation": 1
+    },
+    "dim_cities": {
+      "contains_unresolved_expression": 329,
+      "unresolved_foreign_key:state_id": 57,
+      "missing_required:city_name": 1
+    },
+    "dim_affiliations": {
+      "contains_unresolved_expression": 6
+    },
+    "dim_sports": {
+      "missing_required:sport_name_normalized": 2,
+      "contains_unresolved_expression": 10
+    },
+    "dim_universities": {
+      "contains_unresolved_expression": 452,
+      "unresolved_foreign_key:main_campus_city_id": 53,
+      "missing_required:current_university_name": 1
+    },
+    "dim_conferences": {
+      "contains_unresolved_expression": 4
+    },
+    "bridge_university_names": {
+      "missing_required:university_id": 1,
+      "contains_unresolved_expression": 404,
+      "unresolved_foreign_key:university_id": 131,
+      "missing_required:start_year": 4
+    },
+    "bridge_university_nicknames": {
+      "contains_unresolved_expression": 355,
+      "unresolved_foreign_key:university_id": 116,
+      "missing_required:start_year": 102
+    },
+    "bridge_university_sports": {
+      "contains_unresolved_expression": 949,
+      "missing_required:is_varsity": 141,
+      "unresolved_foreign_key:university_id": 35,
+      "unresolved_foreign_key:sport_id": 2,
+      "unresolved_foreign_key:division_id": 1,
+      "missing_required:sport_id": 2,
+      "missing_required:university_id": 1
+    },
+    "bridge_conference_names": {
+      "contains_unresolved_expression": 43,
+      "unresolved_foreign_key:conference_id": 18,
+      "missing_required:start_year": 12
+    },
+    "bridge_conference_divisions": {
+      "contains_unresolved_expression": 77,
+      "unresolved_foreign_key:conference_id": 12,
+      "unresolved_foreign_key:division_id": 1,
+      "missing_required:start_year": 38
+    },
+    "fact_membership": {
+      "contains_unresolved_expression": 1663,
+      "unresolved_foreign_key:conference_id": 4,
+      "unresolved_foreign_key:university_id": 63,
+      "missing_required:university_id": 1
+    }
+  }
+}
