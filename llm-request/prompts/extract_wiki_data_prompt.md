@@ -60,7 +60,7 @@ When reading timeline maps, keep only entries that indicate full or primary conf
 5. Extract `conference_wikipedia_href` whenever possible and standardize to relative Wikipedia path format when possible (for example, `/wiki/Atlantic_Coast_Conference`).
 6. City and state should represent the university's campus location in current/common usage when present in source text.
 7. Keep years as integers.
-8. Use `null` for unknown `end_year` (ongoing membership) or unavailable values.
+8. Use `null` for unknown `start_year` or `end_year` when the source is ambiguous or unavailable.
 9. If multiple universities have similar names, `university_wikipedia_href` is the primary disambiguator.
 
 ## Output Format
@@ -100,6 +100,6 @@ Return **only valid JSON** (no prose, no markdown, no code fences) using this ex
 
 1. Confirm JSON parses.
 2. Confirm required keys and column lists match exactly.
-3. Confirm each membership row has non-null `university_wikipedia_href`, `conference_name`, and `start_year`.
+3. Confirm each membership row has non-null `university_wikipedia_href` and `conference_name`. Keep `start_year` or `end_year` as `null` only when the source does not support a high-confidence year.
 4. Confirm no sport-only/associate-only memberships are included.
 5. Confirm `conferences.rows` has exactly one row with conference name populated.
