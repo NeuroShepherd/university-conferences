@@ -87,6 +87,7 @@ Return **only valid JSON** (no prose, no markdown, no code fences) using this ex
 4. Do not output exact duplicate membership rows (`university_wikipedia_href`, `conference_name`, `start_year`, `end_year`).
 5. Ensure all membership rows reference a university present in `universities.rows` by `university_wikipedia_href`.
 6. `university_wikipedia_href` should be non-null whenever a link is present in source data.
+7. Do not split continuous primary membership into multiple rows just because intermediate narrative context changes (for example, temporary sport-specific exceptions). If there is no true break in primary conference membership, return one continuous period.
 
 ## Quality Checks Before Returning
 

@@ -14,11 +14,111 @@ model = "gemini-2.5-flash"
 OUTPUT_PATH = "llm-request/data/extracted_wiki_data_responses.json"
 
 
+def to_json_safe(value):
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {k: to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [to_json_safe(v) for v in value]
+    if hasattr(value, "model_dump"):
+        return to_json_safe(value.model_dump())
+    if hasattr(value, "to_dict"):
+        return to_json_safe(value.to_dict())
+    return str(value)
+
+
 def save_results(results):
     temp_path = f"{OUTPUT_PATH}.tmp"
     with open(temp_path, "w") as f:
         json.dump(results, f, indent=2)
     os.replace(temp_path, OUTPUT_PATH)
+
+
+def strip_fences(text):
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    return cleaned
+
+
+def parse_model_json(text):
+    cleaned = strip_fences(text)
+    if not cleaned:
+        return None
+    try:
+        parsed = json.loads(cleaned)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def merge_membership_rows(rows):
+    # Expected row shape:
+    # [university_wikipedia_href, conference_name, start_year, end_year]
+    grouped = {}
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 4:
+            continue
+        href, conf_name, start_year, end_year = row[:4]
+        if href is None or conf_name is None or start_year is None:
+            continue
+        key = (href, conf_name)
+        grouped.setdefault(key, []).append([href, conf_name, start_year, end_year])
+
+    merged_rows = []
+    for (_, _), items in grouped.items():
+        items.sort(key=lambda r: int(r[2]))
+        current = items[0]
+
+        for nxt in items[1:]:
+            curr_end = current[3]
+            next_start = int(nxt[2])
+            next_end = nxt[3]
+
+            if curr_end is None:
+                # Already open-ended; absorb subsequent fragments.
+                continue
+
+            curr_end_int = int(curr_end)
+            # Merge when periods overlap or are contiguous by year.
+            if next_start <= curr_end_int + 1:
+                if next_end is None:
+                    current[3] = None
+                else:
+                    current[3] = max(curr_end_int, int(next_end))
+            else:
+                merged_rows.append(current)
+                current = nxt
+
+        merged_rows.append(current)
+
+    merged_rows.sort(key=lambda r: (r[1], r[0], int(r[2])))
+    return merged_rows
+
+
+def normalize_extracted_payload(payload):
+    memberships = payload.get("university_conference_memberships")
+    if not isinstance(memberships, dict):
+        return payload
+
+    columns = memberships.get("columns") or []
+    rows = memberships.get("rows") or []
+    expected = ["university_wikipedia_href", "conference_name", "start_year", "end_year"]
+    if columns != expected or not isinstance(rows, list):
+        return payload
+
+    normalized = payload.copy()
+    memberships_copy = memberships.copy()
+    memberships_copy["rows"] = merge_membership_rows(rows)
+    normalized["university_conference_memberships"] = memberships_copy
+    return normalized
 
 
 with open("data-assembly/json/final_data.json", "r") as f:
@@ -77,10 +177,34 @@ else:
     responses = {}
 
 
+# Backfill normalize already-saved successful responses.
+normalized_existing = 0
+for conf_name, payload in responses.items():
+    if not isinstance(payload, dict) or payload.get("error") is not None:
+        continue
+
+    existing_text = payload.get("response_text")
+    parsed_existing = parse_model_json(existing_text)
+    if parsed_existing is None:
+        continue
+
+    normalized_existing_payload = normalize_extracted_payload(parsed_existing)
+    normalized_existing_text = json.dumps(normalized_existing_payload, indent=2)
+    if normalized_existing_text != existing_text:
+        payload["response_text"] = normalized_existing_text
+        normalized_existing += 1
+
+if normalized_existing:
+    save_results(responses)
+    print(f"Normalized existing saved responses: {normalized_existing}")
 
 
 for conf_name, conf_data in formatted_conferences.items():
-    if conf_name in responses and isinstance(responses[conf_name], dict) and "error" not in responses[conf_name]:
+    if (
+        conf_name in responses
+        and isinstance(responses[conf_name], dict)
+        and responses[conf_name].get("error") is None
+    ):
         print(f"Skipping {conf_name}; already processed")
         continue
 
@@ -91,14 +215,25 @@ for conf_name, conf_data in formatted_conferences.items():
 
 
     try:
-        response = client.chat.completions.create(
+        response = client.models.generate_content(
             model=model,
-            content=content
+            contents=content
         )
+
+        raw_response_text = response.text
+        parsed = parse_model_json(raw_response_text)
+        normalized_payload = normalize_extracted_payload(parsed) if parsed else None
+        response_text_to_save = (
+            json.dumps(normalized_payload, indent=2)
+            if normalized_payload is not None
+            else raw_response_text
+        )
+
         responses[conf_name] = {
-            "response_text": response.text,
+            "response_text": response_text_to_save,
+            "raw_response_text": raw_response_text,
             "error": None,
-            "metadata": response.metadata
+            "metadata": to_json_safe(response.usage_metadata)
         }
         save_results(responses)
         print(f"Processed {conf_name}")
