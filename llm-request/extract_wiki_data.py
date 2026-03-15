@@ -63,11 +63,15 @@ def merge_membership_rows(rows):
     # Expected row shape:
     # [university_wikipedia_href, conference_name, start_year, end_year]
     grouped = {}
+    preserved_unknown_rows = []
     for row in rows:
         if not isinstance(row, list) or len(row) < 4:
             continue
         href, conf_name, start_year, end_year = row[:4]
-        if href is None or conf_name is None or start_year is None:
+        if href is None or conf_name is None:
+            continue
+        if start_year is None:
+            preserved_unknown_rows.append([href, conf_name, start_year, end_year])
             continue
         key = (href, conf_name)
         grouped.setdefault(key, []).append([href, conf_name, start_year, end_year])
@@ -99,7 +103,18 @@ def merge_membership_rows(rows):
 
         merged_rows.append(current)
 
-    merged_rows.sort(key=lambda r: (r[1], r[0], int(r[2])))
+    preserved_unknown_rows.sort(
+        key=lambda r: (r[1], r[0], 9999 if r[3] is None else int(r[3]))
+    )
+    merged_rows.extend(preserved_unknown_rows)
+    merged_rows.sort(
+        key=lambda r: (
+            r[1],
+            r[0],
+            -1 if r[2] is None else int(r[2]),
+            9999 if r[3] is None else int(r[3]),
+        )
+    )
     return merged_rows
 
 
@@ -119,6 +134,60 @@ def normalize_extracted_payload(payload):
     memberships_copy["rows"] = merge_membership_rows(rows)
     normalized["university_conference_memberships"] = memberships_copy
     return normalized
+
+
+def validate_extracted_payload(payload):
+    issues = []
+    if not isinstance(payload, dict):
+        return ["Payload is not a JSON object"]
+
+    expected_tables = {
+        "universities": ["university_name", "university_wikipedia_href", "city", "state"],
+        "conferences": ["conference_name", "conference_wikipedia_href", "conference_start_year", "conference_end_year"],
+        "university_conference_memberships": ["university_wikipedia_href", "conference_name", "start_year", "end_year"],
+    }
+
+    for table_name, expected_columns in expected_tables.items():
+        table = payload.get(table_name)
+        if not isinstance(table, dict):
+            issues.append(f"Missing or invalid table: {table_name}")
+            continue
+
+        columns = table.get("columns")
+        rows = table.get("rows")
+        if columns != expected_columns:
+            issues.append(
+                f"Unexpected columns for {table_name}: expected {expected_columns}, got {columns}"
+            )
+        if not isinstance(rows, list):
+            issues.append(f"Rows for {table_name} are not a list")
+
+    universities = payload.get("universities", {})
+    memberships = payload.get("university_conference_memberships", {})
+    uni_rows = universities.get("rows") if isinstance(universities, dict) else None
+    mem_rows = memberships.get("rows") if isinstance(memberships, dict) else None
+
+    if isinstance(uni_rows, list) and isinstance(mem_rows, list):
+        uni_hrefs = {
+            row[1]
+            for row in uni_rows
+            if isinstance(row, list) and len(row) >= 2 and isinstance(row[1], str)
+        }
+        mem_hrefs = {
+            row[0]
+            for row in mem_rows
+            if isinstance(row, list) and len(row) >= 1 and isinstance(row[0], str)
+        }
+
+        missing_memberships = sorted(uni_hrefs - mem_hrefs)
+        if missing_memberships:
+            sample = ", ".join(missing_memberships[:5])
+            issues.append(
+                "universities missing membership rows: "
+                f"{len(missing_memberships)} (sample: {sample})"
+            )
+
+    return issues
 
 
 with open("data-assembly/json/final_data.json", "r") as f:
@@ -214,6 +283,8 @@ for conf_name, conf_data in formatted_conferences.items():
     ]
 
 
+    raw_response_text = None
+    response_metadata = None
     try:
         response = client.models.generate_content(
             model=model,
@@ -221,24 +292,36 @@ for conf_name, conf_data in formatted_conferences.items():
         )
 
         raw_response_text = response.text
+        response_metadata = to_json_safe(response.usage_metadata)
         parsed = parse_model_json(raw_response_text)
-        normalized_payload = normalize_extracted_payload(parsed) if parsed else None
-        response_text_to_save = (
-            json.dumps(normalized_payload, indent=2)
-            if normalized_payload is not None
-            else raw_response_text
-        )
+        if parsed is None:
+            raise ValueError(
+                "Model response is not valid JSON object (possible truncation or malformed fenced output)"
+            )
+
+        normalized_payload = normalize_extracted_payload(parsed)
+        validation_issues = validate_extracted_payload(normalized_payload)
+        if validation_issues:
+            raise ValueError("Validation failed: " + " | ".join(validation_issues))
+
+        response_text_to_save = json.dumps(normalized_payload, indent=2)
 
         responses[conf_name] = {
             "response_text": response_text_to_save,
             "raw_response_text": raw_response_text,
             "error": None,
-            "metadata": to_json_safe(response.usage_metadata)
+            "metadata": response_metadata,
+            "validation_issues": []
         }
         save_results(responses)
         print(f"Processed {conf_name}")
     except Exception as e:
-        responses[conf_name] = {"error": str(e), "metadata": None}
+        responses[conf_name] = {
+            "response_text": raw_response_text,
+            "raw_response_text": raw_response_text,
+            "error": str(e),
+            "metadata": response_metadata,
+        }
         save_results(responses)
         print(f"Failed to process {conf_name}: {e}")
 
