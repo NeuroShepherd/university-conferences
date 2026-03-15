@@ -10,14 +10,16 @@ DROP TABLE IF EXISTS conferences;
 DROP TABLE IF EXISTS universities;
 
 CREATE TABLE universities (
-    university_wikipedia_href TEXT PRIMARY KEY,
+    university_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    university_wikipedia_href TEXT NOT NULL UNIQUE,
     university_name TEXT NOT NULL,
     city TEXT,
     state TEXT
 );
 
 CREATE TABLE conferences (
-    conference_name TEXT PRIMARY KEY,
+    conference_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    conference_name TEXT NOT NULL UNIQUE,
     conference_wikipedia_href TEXT,
     conference_start_year INTEGER,
     conference_end_year INTEGER,
