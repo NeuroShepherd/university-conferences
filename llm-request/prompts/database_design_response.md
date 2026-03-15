@@ -13,6 +13,10 @@ The database schema is designed to meet the specified requirements for tracking 
     *   A `Conferences` table is established to store unique conference entities.
     *   `conference_id` acts as the primary key for unique identification.
     *   `conference_name` is unique and non-null, ensuring distinct conference names.
+    *   `conference_wikipedia_href` is included as a canonical external identifier and is unique + non-null to prevent conference naming ambiguity.
+    *   `conference_start_year` and `conference_end_year` capture the conference lifecycle itself (independent of any one university's membership periods).
+    *   `conference_end_year` is nullable to support currently active conferences.
+    *   A `CHECK` constraint ensures conference lifecycle years are valid (`conference_end_year IS NULL OR conference_start_year <= conference_end_year`).
 
 3.  **Primary Conference Memberships Over Time:**
     *   The `University_Conference_Memberships` table models the many-to-many relationship between universities and conferences, incorporating the temporal aspect of membership.
@@ -35,7 +39,11 @@ CREATE TABLE Universities (
 
 CREATE TABLE Conferences (
     conference_id SERIAL PRIMARY KEY,
-    conference_name VARCHAR(255) UNIQUE NOT NULL
+    conference_name VARCHAR(255) UNIQUE NOT NULL,
+    conference_wikipedia_href VARCHAR(512) UNIQUE NOT NULL,
+    conference_start_year SMALLINT,
+    conference_end_year SMALLINT,
+    CHECK (conference_end_year IS NULL OR conference_start_year <= conference_end_year)
 );
 
 CREATE TABLE University_Conference_Memberships (
