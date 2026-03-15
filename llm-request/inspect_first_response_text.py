@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from pathlib import Path
 
 RESPONSES_PATH = Path("llm-request/data/extracted_wiki_data_responses.json")
@@ -54,6 +55,97 @@ def strip_fences(text: str) -> str:
             lines = lines[:-1]
         cleaned = "\n".join(lines).strip()
     return cleaned
+
+
+def parse_response_payload(text: str):
+    candidates = []
+    cleaned = strip_fences(text)
+    candidates.append(cleaned)
+
+    # Try extracting JSON from first '{' onward for responses that include preamble text.
+    brace_idx = cleaned.find("{")
+    if brace_idx != -1:
+        candidates.append(cleaned[brace_idx:])
+
+    last_error = None
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        try:
+            return json.loads(candidate), None
+        except Exception as exc:
+            last_error = exc
+            try:
+                # Attempt tolerant parse of leading valid JSON object.
+                obj, _ = decoder.raw_decode(candidate)
+                return obj, None
+            except Exception as raw_exc:
+                last_error = raw_exc
+
+    return None, last_error
+
+
+def extract_balanced_object(text: str, start_idx: int):
+    # start_idx should point to '{'
+    if start_idx < 0 or start_idx >= len(text) or text[start_idx] != "{":
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for i in range(start_idx, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start_idx : i + 1]
+
+    return None
+
+
+def parse_sections_best_effort(text: str):
+    cleaned = strip_fences(text)
+    parsed_sections = {}
+    section_names = [
+        "universities",
+        "conferences",
+        "university_conference_memberships",
+    ]
+
+    for name in section_names:
+        # Find: "section_name" : {
+        match = re.search(rf'"{re.escape(name)}"\s*:\s*\{{', cleaned)
+        if not match:
+            continue
+
+        # match ends after '{', so object starts one char before end
+        obj_start = match.end() - 1
+        obj_text = extract_balanced_object(cleaned, obj_start)
+        if not obj_text:
+            continue
+
+        try:
+            section_obj = json.loads(obj_text)
+        except Exception:
+            continue
+
+        if isinstance(section_obj, dict):
+            parsed_sections[name] = section_obj
+
+    return parsed_sections
 
 
 def to_str(value) -> str:
@@ -136,8 +228,19 @@ def main() -> None:
     print(f"Conference: {selected_conf_name}")
     print("-" * 80)
     if response_text:
-        cleaned = strip_fences(response_text)
-        parsed = json.loads(cleaned)
+        parsed, parse_error = parse_response_payload(response_text)
+        if not isinstance(parsed, dict):
+            print(f"Could not fully parse response_text as JSON: {parse_error}")
+            print("Attempting best-effort section parsing for tabular display...")
+            parsed = parse_sections_best_effort(response_text)
+            if not parsed:
+                print("No recoverable table sections found.")
+                print("Raw response_text preview:")
+                preview = response_text[:2000]
+                print(preview)
+                if len(response_text) > len(preview):
+                    print("... [truncated]")
+                return
 
         for section_name, section_payload in parsed.items():
             if not isinstance(section_payload, dict):
@@ -154,7 +257,7 @@ def main() -> None:
                 print(f"[schema warning] Actual columns:   {columns}")
             print(render_table(columns, rows))
     else:
-        print("No response_text found for the first result.")
+        print("No response_text found for this result.")
 
 
 if __name__ == "__main__":
