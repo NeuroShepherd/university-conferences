@@ -5,7 +5,8 @@ The database schema is designed to meet the specified requirements for tracking 
 1.  **University Identification and Location:**
     *   A `Universities` table is created to store unique university entities.
     *   `university_id` serves as the primary key for unique identification.
-    *   `university_name` is mandated to be unique and not null to ensure clear identification of each institution.
+    *   `university_wikipedia_href` is included as a canonical external identifier and is unique + non-null to prevent naming ambiguity (for example, schools with similar names).
+    *   `university_name` is still required (`NOT NULL`) for readability, but uniqueness is anchored by `university_wikipedia_href`.
     *   `city` and `state` columns directly store the current geographical location of each university. These are non-nullable as every university is expected to have a location.
 
 2.  **Conference Entities:**
@@ -26,7 +27,8 @@ The database schema is designed to meet the specified requirements for tracking 
 ```sql
 CREATE TABLE Universities (
     university_id SERIAL PRIMARY KEY,
-    university_name VARCHAR(255) UNIQUE NOT NULL,
+    university_name VARCHAR(255) NOT NULL,
+    university_wikipedia_href VARCHAR(512) UNIQUE NOT NULL,
     city VARCHAR(100) NOT NULL,
     state VARCHAR(100) NOT NULL
 );
