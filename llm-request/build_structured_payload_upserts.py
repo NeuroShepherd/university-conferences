@@ -9,6 +9,22 @@ from typing import Any
 import finalize_executable_sql as final
 
 
+STRING_LIMITS: dict[str, dict[str, int]] = {
+    "dim_associations": {"association_name": 50},
+    "dim_divisions": {"division_name": 50},
+    "dim_states": {"state_name": 100, "state_abbreviation": 10},
+    "dim_cities": {"city_name": 100},
+    "dim_affiliations": {"affiliation_type": 100, "denomination": 100},
+    "dim_sports": {"sport_name_normalized": 100},
+    "dim_membership_types": {"type_name": 100},
+    "dim_universities": {"current_university_name": 255, "current_colors": 255},
+    "dim_conferences": {"current_conference_name": 255, "short_name": 50},
+    "bridge_university_names": {"university_name": 255},
+    "bridge_university_nicknames": {"nickname": 100},
+    "bridge_conference_names": {"conference_name": 255},
+}
+
+
 def strip_fences(text: str) -> str:
     cleaned = text.strip()
     if cleaned.startswith("```"):
@@ -22,7 +38,27 @@ def strip_fences(text: str) -> str:
 
 
 def make_ref(table: str, key: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "ref", "table": table, "key": key}
+    limits = STRING_LIMITS.get(table, {})
+    normalized_key: dict[str, Any] = {}
+    for field, value in key.items():
+        if isinstance(value, str):
+            max_len = limits.get(field)
+            normalized_key[field] = value[:max_len] if isinstance(max_len, int) and max_len > 0 else value
+        else:
+            normalized_key[field] = value
+    return {"kind": "ref", "table": table, "key": normalized_key}
+
+
+def clamp_row_strings(table: str, row: dict[str, Any]) -> dict[str, Any]:
+    limits = STRING_LIMITS.get(table, {})
+    clamped: dict[str, Any] = {}
+    for field, value in row.items():
+        if isinstance(value, str):
+            max_len = limits.get(field)
+            clamped[field] = value[:max_len] if isinstance(max_len, int) and max_len > 0 else value
+        else:
+            clamped[field] = value
+    return clamped
 
 
 def row_from_payload(columns: list[str], row: Any) -> dict[str, Any]:
@@ -104,36 +140,36 @@ def affiliation_ref(affiliation_type: Any, denomination: Any) -> dict[str, Any] 
 
 def convert_row(table: str, row: dict[str, Any]) -> dict[str, Any]:
     if table == "dim_associations":
-        return {"association_name": row.get("association_name")}
+        return clamp_row_strings(table, {"association_name": row.get("association_name")})
     if table == "dim_divisions":
-        return {
+        return clamp_row_strings(table, {
             "division_name": row.get("division_name"),
             "association_id": association_ref(row.get("association_name")),
-        }
+        })
     if table == "dim_states":
-        return {
+        return clamp_row_strings(table, {
             "state_name": row.get("state_name"),
             "state_abbreviation": row.get("state_abbreviation"),
-        }
+        })
     if table == "dim_cities":
-        return {
+        return clamp_row_strings(table, {
             "city_name": row.get("city_name"),
             "state_id": state_ref(row.get("state_abbreviation"), row.get("state_name")),
-        }
+        })
     if table == "dim_affiliations":
-        return {
+        return clamp_row_strings(table, {
             "affiliation_type": row.get("affiliation_type"),
             "denomination": row.get("denomination"),
-        }
+        })
     if table == "dim_sports":
-        return {"sport_name_normalized": row.get("sport_name_normalized")}
+        return clamp_row_strings(table, {"sport_name_normalized": row.get("sport_name_normalized")})
     if table == "dim_membership_types":
-        return {
+        return clamp_row_strings(table, {
             "type_name": row.get("type_name"),
             "description": row.get("description"),
-        }
+        })
     if table == "dim_universities":
-        return {
+        return clamp_row_strings(table, {
             "current_university_name": row.get("current_university_name"),
             "founded_year": row.get("founded_year"),
             "current_enrollment": row.get("current_enrollment"),
@@ -149,30 +185,30 @@ def convert_row(table: str, row: dict[str, Any]) -> dict[str, Any]:
                 row.get("current_affiliation_type"),
                 row.get("current_denomination"),
             ),
-        }
+        })
     if table == "dim_conferences":
-        return {
+        return clamp_row_strings(table, {
             "current_conference_name": row.get("current_conference_name"),
             "short_name": row.get("short_name"),
             "founded_year": row.get("founded_year"),
-        }
+        })
     if table == "bridge_university_names":
-        return {
+        return clamp_row_strings(table, {
             "university_id": university_ref(row.get("current_university_name")),
             "university_name": row.get("university_name"),
             "start_year": row.get("start_year"),
             "end_year": row.get("end_year"),
-        }
+        })
     if table == "bridge_university_nicknames":
-        return {
+        return clamp_row_strings(table, {
             "university_id": university_ref(row.get("current_university_name")),
             "nickname": row.get("nickname"),
             "start_year": row.get("start_year"),
             "end_year": row.get("end_year"),
             "sport_id": sport_ref(row.get("sport_name_normalized")),
-        }
+        })
     if table == "bridge_university_sports":
-        return {
+        return clamp_row_strings(table, {
             "university_id": university_ref(row.get("current_university_name")),
             "sport_id": sport_ref(row.get("sport_name_normalized")),
             "division_id": division_ref(row.get("division_name")),
@@ -180,23 +216,23 @@ def convert_row(table: str, row: dict[str, Any]) -> dict[str, Any]:
             "end_year": row.get("end_year"),
             "is_varsity": row.get("is_varsity"),
             "sport_notes": row.get("sport_notes"),
-        }
+        })
     if table == "bridge_conference_names":
-        return {
+        return clamp_row_strings(table, {
             "conference_id": conference_ref(row.get("current_conference_name")),
             "conference_name": row.get("conference_name"),
             "start_year": row.get("start_year"),
             "end_year": row.get("end_year"),
-        }
+        })
     if table == "bridge_conference_divisions":
-        return {
+        return clamp_row_strings(table, {
             "conference_id": conference_ref(row.get("current_conference_name")),
             "division_id": division_ref(row.get("division_name")),
             "start_year": row.get("start_year"),
             "end_year": row.get("end_year"),
-        }
+        })
     if table == "fact_membership":
-        return {
+        return clamp_row_strings(table, {
             "university_id": university_ref(row.get("current_university_name")),
             "conference_id": conference_ref(row.get("current_conference_name")),
             "membership_type_id": membership_type_ref(row.get("membership_type_name")),
@@ -209,7 +245,7 @@ def convert_row(table: str, row: dict[str, Any]) -> dict[str, Any]:
             "next_conference_id": conference_ref(row.get("next_conference_name")),
             "reason_for_change": row.get("reason_for_change"),
             "membership_notes": row.get("membership_notes"),
-        }
+        })
     raise KeyError(f"Unsupported table: {table}")
 
 
@@ -309,6 +345,46 @@ def merge_records(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
 
     merged.sort(key=lambda record: (final.TABLE_ORDER.index(record["table"]), final.json_key(record["row"])))
     return merged, dict(sorted(merged_counts.items()))
+
+
+def null_ambiguous_conference_short_names(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    short_name_to_conferences: dict[str, set[str]] = defaultdict(set)
+    for record in records:
+        if record["table"] != "dim_conferences":
+            continue
+        short_name = record["row"].get("short_name")
+        conference_name = record["row"].get("current_conference_name")
+        if isinstance(short_name, str) and short_name and isinstance(conference_name, str) and conference_name:
+            short_name_to_conferences[short_name].add(conference_name)
+
+    ambiguous_short_names = {
+        short_name
+        for short_name, conference_names in short_name_to_conferences.items()
+        if len(conference_names) > 1
+    }
+    if not ambiguous_short_names:
+        return records, 0
+
+    normalized_records: list[dict[str, Any]] = []
+    changed = 0
+    for record in records:
+        if record["table"] != "dim_conferences":
+            normalized_records.append(record)
+            continue
+
+        short_name = record["row"].get("short_name")
+        if short_name not in ambiguous_short_names:
+            normalized_records.append(record)
+            continue
+
+        updated = record.copy()
+        updated_row = record["row"].copy()
+        updated_row["short_name"] = None
+        updated["row"] = updated_row
+        normalized_records.append(updated)
+        changed += 1
+
+    return normalized_records, changed
 
 
 def conflict_target_for_table(table: str) -> str:
@@ -432,6 +508,7 @@ def main() -> None:
         valid_records.append(transformed)
 
     merged_records, merged_counts = merge_records(valid_records)
+    merged_records, nulled_ambiguous_conference_short_names = null_ambiguous_conference_short_names(merged_records)
     merged_records, pruned_unused_cities = final.prune_unused_dim_cities(merged_records)
     merged_records, pruned_unresolvable_university_names = final.prune_unresolvable_bridge_university_names(merged_records)
     merged_records, pruned_unresolvable_university_nicknames = final.prune_unresolvable_bridge_university_nicknames(merged_records)
@@ -456,6 +533,7 @@ def main() -> None:
         },
         "optional_references_removed": {
             "bridge_university_sports.division_id": nulled_optional_sport_divisions,
+            "dim_conferences.short_name": nulled_ambiguous_conference_short_names,
         },
         "records_in_final_sql": len(merged_records) - sum(sql_skipped.values()),
         "records_skipped_during_sql_generation": sql_skipped,

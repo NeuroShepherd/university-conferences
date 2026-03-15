@@ -4,59 +4,60 @@
     "skipped_conferences": [],
     "parse_errors": {},
     "parsed_row_counts_by_table": {
-      "bridge_conference_divisions": 587,
-      "bridge_conference_names": 318,
+      "bridge_conference_divisions": 591,
+      "bridge_conference_names": 322,
       "bridge_university_names": 1196,
       "bridge_university_nicknames": 3163,
-      "bridge_university_sports": 2455,
+      "bridge_university_sports": 2459,
       "dim_affiliations": 1090,
       "dim_associations": 193,
       "dim_cities": 3122,
-      "dim_conferences": 1515,
+      "dim_conferences": 1512,
       "dim_divisions": 306,
       "dim_membership_types": 397,
-      "dim_sports": 823,
+      "dim_sports": 822,
       "dim_states": 1029,
       "dim_universities": 3193,
-      "fact_membership": 4905
+      "fact_membership": 4977
     }
   },
-  "raw_records_considered": 24292,
-  "valid_records_after_normalization": 21130,
+  "raw_records_considered": 24372,
+  "valid_records_after_normalization": 21231,
   "merged_duplicate_rows_by_table": {
     "bridge_conference_divisions": 6,
     "bridge_conference_names": 5,
     "bridge_university_names": 44,
-    "bridge_university_nicknames": 50,
+    "bridge_university_nicknames": 53,
     "bridge_university_sports": 9,
     "dim_affiliations": 1026,
     "dim_associations": 186,
-    "dim_cities": 2042,
+    "dim_cities": 2040,
     "dim_conferences": 1218,
     "dim_divisions": 278,
     "dim_membership_types": 358,
     "dim_sports": 715,
     "dim_states": 972,
     "dim_universities": 1697,
-    "fact_membership": 136
+    "fact_membership": 139
   },
   "records_pruned_after_reference_check": {
-    "dim_cities": 50,
+    "dim_cities": 51,
     "bridge_university_names": 4,
     "bridge_university_nicknames": 4,
     "bridge_university_sports": 11,
     "bridge_conference_names": 0,
-    "bridge_conference_divisions": 2
+    "bridge_conference_divisions": 9
   },
   "optional_references_removed": {
-    "bridge_university_sports.division_id": 6
+    "bridge_university_sports.division_id": 6,
+    "dim_conferences.short_name": 61
   },
-  "records_in_final_sql": 12317,
+  "records_in_final_sql": 12406,
   "records_skipped_during_sql_generation": {},
   "skipped_reasons": {
     "bridge_university_nicknames": {
-      "missing_required:start_year": 2074,
-      "missing_required:nickname": 2
+      "missing_required:start_year": 2054,
+      "missing_required:nickname": 1
     },
     "bridge_university_names": {
       "missing_required:start_year": 264,
