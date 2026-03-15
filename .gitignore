@@ -12,6 +12,7 @@ wheels/
 
 # large files
 data-assembly/json
+llm-request/data
 
 # env
 .env
