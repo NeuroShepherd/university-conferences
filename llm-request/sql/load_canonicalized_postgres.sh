@@ -11,6 +11,7 @@ DB_NAME="${1:-university_conferences}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCHEMA_SQL="${SCRIPT_DIR}/create_schema_for_canonicalized_data.sql"
 DATA_SQL="${SCRIPT_DIR}/conference_data_canonicalized.sql"
+MIGRATION_SQL="${SCRIPT_DIR}/migrate_relationships_to_id_fks.sql"
 
 if ! command -v psql >/dev/null 2>&1; then
   echo "Error: psql is not installed or not in PATH." >&2
@@ -32,6 +33,11 @@ if [[ ! -f "${DATA_SQL}" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${MIGRATION_SQL}" ]]; then
+  echo "Error: migration file not found: ${MIGRATION_SQL}" >&2
+  exit 1
+fi
+
 echo "Checking if database '${DB_NAME}' exists..."
 if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
   echo "Creating database '${DB_NAME}'..."
@@ -45,5 +51,8 @@ psql -v ON_ERROR_STOP=1 -d "${DB_NAME}" -f "${SCHEMA_SQL}"
 
 echo "Loading canonicalized data (this may take a bit)..."
 psql -v ON_ERROR_STOP=1 -d "${DB_NAME}" -f "${DATA_SQL}"
+
+echo "Migrating relationship tables to ID-based foreign keys..."
+psql -v ON_ERROR_STOP=1 -d "${DB_NAME}" -f "${MIGRATION_SQL}"
 
 echo "Done. Database '${DB_NAME}' is ready."
