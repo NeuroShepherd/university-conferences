@@ -48,7 +48,7 @@ for conf in sample_conferences.values():
 
 
 
-with open("llm-request/database_design_prompt.md", "r") as f:
+with open("llm-request/prompts/database_design_prompt.md", "r") as f:
     prompt = f.read()
 
 content = [
@@ -64,5 +64,5 @@ response = client.models.generate_content(
 if response.usage_metadata is not None:
     print(f"Total tokens:    {response.usage_metadata.total_token_count}")
 
-with open("llm-request/database_design_response.md", "w") as f:
+with open("llm-request/prompts/database_design_response.md", "w") as f:
     f.write(response.text)
