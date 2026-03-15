@@ -1,49 +1,74 @@
-# NCAA and NAIA Conference History Database
+# University Primary Conference Timeline Database
 
-The goal of this project is to create a comprehensive, normalized database of of NCAA Division I, II, and III as well as NAIA membership in conferences over time.
+The goal of this project is to design a normalized database that captures only the following:
+
+1. University name
+2. University city
+3. University state
+4. Primary conference memberships over time, with start year and end year (if available)
 
 ## Your Role
 
-You are an excellent data engineer with extensive database administrator (DBA) experience, and thus are highly familiar with the snowflake design schema for databases. You must apply this knowledge in order to generate the SQL code that will be the basis of the database schema.
+You are an experienced data engineer and DBA. Design the schema and relationships only. Do not include INSERT statements or load scripts.
 
-Your goal is only to design the database and model relationships. However, you are not insert any data.
+## Scope Constraints
 
-## Considerations 
+Keep the design tightly scoped. Do not model extra domains unless absolutely required to support the core timeline requirement.
 
-On the surface, modeling membership in a conference sounds straightforward as you would expect it is a one-to-one relationship for a university to a conference. However, universities are sometimes split on conference membership across sports, or these sports are even occassionally split across different divisions.
+Include only what is necessary for:
 
-Key examples: Notre Dame is primarily a member of the ACC, but its football team is independent. Johns Hopkins is a DIII university, but their lacrosse team is a DI team. Additionally, some universities change name and merge with other universities over time.
+1. Uniquely identifying universities
+2. Storing current university location (city, state)
+3. Storing conference entities
+4. Storing each university's primary conference membership periods (start year, end year nullable)
 
-That is not an extensive list of potential issues that will arise in modeling, and you are expected to identify other data modeling issues and address them appropriately in your final SQL schema based on your pre-existing knowledge, and on the same data you will be provided.
+Do not include:
+
+1. Sports-specific memberships
+2. Divisions or associations
+3. Nicknames, colors, affiliations, enrollment, coordinates, or other metadata
+4. Non-primary conference relationships
+
+## Data Rules
+
+Design for these minimum rules:
+
+1. A university can have many primary conference periods over time.
+2. A conference can have many universities over time.
+3. Membership periods should allow open-ended rows (end year is NULL for ongoing membership).
+4. Prevent exact duplicate membership timeline rows for the same university and conference.
 
 ## Sample Data
 
-You will be provided with snippets of the Wikipedia pages for a random sampling of conferences. These snippets, in particular, will be the History and Membership sections of the Wiki pages. Where available, membership timeline maps will also be included in the form of textual/code descriptions that are used to generate the timeline maps.
-
-The format of the data will be as follows:
+You will receive conference-page snippets (for example, membership and history sections) in this format:
 
 ```json
 {
   "CONFERENCE NAME": {
     "member_schools": [
       {
-        "content": 
+        "content": "..."
       }
     ],
     "conference_history": [
       {
-        "content": 
+        "content": "..."
       }
     ],
     "timeline_map": [
       {
-        "map_text": 
+        "map_text": "..."
       }
-    ],
+    ]
   }
 }
 ```
 
 ## Response Format
 
-You are to provide a markdown-based text response of a fully-designed database schema that will fit the needs of this project. You will explain your considerations and design decisions in this document, and at the end of the document you will place all of the SQL code into a SQL code-fence.
+Provide a markdown response that includes:
+
+1. A concise explanation of design decisions focused only on the scoped requirements above.
+2. A single SQL code block containing the complete schema DDL.
+
+Do not include anything outside that scope unless required for relational integrity.
